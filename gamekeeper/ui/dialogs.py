@@ -316,7 +316,7 @@ class SettingsDialog(QDialog):
         self.settings = settings
         lay = QVBoxLayout(self)
 
-        box = QGroupBox("Steam (optional, for achievement data)")
+        box = QGroupBox("Steam account (optional)")
         f = QFormLayout(box)
         self.key = QLineEdit(settings.steam_api_key)
         self.key.setEchoMode(QLineEdit.Password)
@@ -324,13 +324,13 @@ class SettingsDialog(QDialog):
         self.sid.setPlaceholderText("SteamID64, profile name or profile URL")
         self.lang = QLineEdit(settings.language)
         f.addRow("Web API key", self.key)
-        f.addRow("", _hint('Free key from <a href="https://steamcommunity.com/dev/apikey">'
-                           'steamcommunity.com/dev/apikey</a> (any domain name works). '
-                           'Needed for achievement names, descriptions and icons.'))
+        f.addRow("", _hint('Not needed for cover art or achievement lists. Only for importing '
+                           'your existing unlocks and playtime from Steam. Free key from '
+                           '<a href="https://steamcommunity.com/dev/apikey">steamcommunity.com/dev/apikey</a>.'))
         f.addRow("Steam ID", self.sid)
-        f.addRow("", _hint("Only for importing your existing unlocks and playtime. "
-                           "Your profile's 'Game details' must be public."))
+        f.addRow("", _hint("Also only for importing. Your profile's 'Game details' must be public."))
         f.addRow("Language", self.lang)
+        f.addRow("", _hint("Language for achievement names, e.g. english, german, czech."))
         lay.addWidget(box)
 
         box2 = QGroupBox("Achievement tracking")

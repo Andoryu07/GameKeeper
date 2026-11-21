@@ -48,12 +48,13 @@ later from the game's page (**Manage → Steam data**).
 
 ### Getting the achievement list
 
-Cover art and global unlock percentages work out of the box. For achievement
-names, descriptions and icons, add a free Steam Web API key in **Settings**
-(get one at <https://steamcommunity.com/dev/apikey>; any domain name works).
+Pulling a game's data from Steam needs no Steam account or API key. You get
+cover art and the full achievement list: names, descriptions, icons, hidden
+flags and how many players have each one.
 
-To bring over achievements you've already earned and your Steam playtime, also
-add your Steam ID in Settings and use **Manage → Steam data → Import my
+Optional: to bring over achievements you've already earned and your Steam
+playtime, add a free Steam Web API key (<https://steamcommunity.com/dev/apikey>)
+and your Steam ID in **Settings**, then use **Manage → Steam data → Import my
 unlocks and playtime**. Your Steam profile's *Game details* need to be public.
 
 ### Automatic unlocks while playing

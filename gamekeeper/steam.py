@@ -1,9 +1,9 @@
 """Pulls game data from Steam: search, cover art and achievement lists.
 
-Search, cover art and global unlock percentages need no account. Achievement
-names, descriptions and icons need a free Steam Web API key
-(https://steamcommunity.com/dev/apikey). Importing your own unlocks and
-playtime also needs your SteamID and a public "Game details" privacy setting.
+Search, cover art and full achievement lists (names, descriptions, icons,
+rarity) need no Steam account or API key. Only importing your own unlocks and
+playtime needs a Steam Web API key, your SteamID and a public "Game details"
+privacy setting.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .storage import Achievement, AchievementSet, Game, Settings
 API = "https://api.steampowered.com"
 STORE = "https://store.steampowered.com"
 CDN = "https://cdn.akamai.steamstatic.com/steam/apps"
+ICONS = "https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps"
 TIMEOUT = 20
 
 session = requests.Session()
@@ -117,38 +118,51 @@ def fetch_achievements(game: Game, settings: Settings, progress=None) -> Achieve
 
     achset = AchievementSet(game.id)
     old = achset.by_name()
-    percents = global_percentages(game.appid)
     items: list[Achievement] = []
     icon_jobs: list[tuple[str, Path]] = []
 
-    if settings.steam_api_key:
+    def add(api_name, name, desc, hidden, icon_url, gray_url, pct):
+        icon = _icon_file(icon_url) if icon_url else ""
+        gray = _icon_file(gray_url) if gray_url else ""
+        if icon:
+            icon_jobs.append((icon_url, achset.icons_dir / icon))
+        if gray:
+            icon_jobs.append((gray_url, achset.icons_dir / gray))
+        items.append(Achievement(api_name=api_name, name=name, description=desc, hidden=bool(hidden),
+                                 icon=icon, icon_gray=gray, global_percent=pct))
+
+    # 1. Public endpoint used by the Steam store: full data, no key needed.
+    try:
+        data = _get(f"{API}/IPlayerService/GetGameAchievements/v1/",
+                    appid=game.appid, language=settings.language)
+        base = f"{ICONS}/{game.appid}"
+        for a in data.get("response", {}).get("achievements", []):
+            pct = a.get("player_percent_unlocked")
+            add(a["internal_name"], a.get("localized_name", ""), a.get("localized_desc", ""),
+                a.get("hidden"),
+                f"{base}/{a['icon']}" if a.get("icon") else "",
+                f"{base}/{a['icon_gray']}" if a.get("icon_gray") else "",
+                float(pct) if pct not in (None, "") else None)
+    except (SteamError, KeyError, ValueError):
+        items.clear()
+        icon_jobs.clear()
+
+    # 2. Official Web API schema, if a key is set.
+    if not items and settings.steam_api_key:
+        percents = global_percentages(game.appid)
         data = _get(f"{API}/ISteamUserStats/GetSchemaForGame/v2/",
                     key=settings.steam_api_key, appid=game.appid, l=settings.language)
-        schema = data.get("game", {}).get("availableGameStats", {}).get("achievements", [])
-        for s in schema:
-            icon = _icon_file(s["icon"]) if s.get("icon") else ""
-            gray = _icon_file(s["icongray"]) if s.get("icongray") else ""
-            if icon:
-                icon_jobs.append((s["icon"], achset.icons_dir / icon))
-            if gray:
-                icon_jobs.append((s["icongray"], achset.icons_dir / gray))
-            items.append(Achievement(
-                api_name=s["name"],
-                name=s.get("displayName", ""),
-                description=s.get("description", ""),
-                hidden=bool(s.get("hidden")),
-                icon=icon, icon_gray=gray,
-                global_percent=percents.get(s["name"]),
-            ))
-    else:
-        # Without a key we only get the internal names. Still enough to track.
-        for name, pct in percents.items():
+        for a in data.get("game", {}).get("availableGameStats", {}).get("achievements", []):
+            add(a["name"], a.get("displayName", ""), a.get("description", ""), a.get("hidden"),
+                a.get("icon", ""), a.get("icongray", ""), percents.get(a["name"]))
+
+    # 3. Last resort: internal names only. Still enough to track unlocks.
+    if not items:
+        for name, pct in global_percentages(game.appid).items():
             items.append(Achievement(api_name=name, name=_pretty(name), global_percent=pct))
 
     if not items:
-        raise SteamError("Steam has no achievements listed for this game."
-                         + ("" if settings.steam_api_key else
-                            " (Add a Steam API key in Settings for full achievement data.)"))
+        raise SteamError("Steam has no achievements listed for this game.")
 
     # carry over unlock state
     for a in items:
