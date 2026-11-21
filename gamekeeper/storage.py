@@ -72,7 +72,6 @@ def _from_dict(cls, data: dict):
 class Settings:
     steam_api_key: str = ""
     steam_id: str = ""              # SteamID64 or custom profile name
-    emulator_dir: str = ""          # folder with the emulator's steam_api(64).dll
     language: str = "english"
     toast_sound: bool = True
     toast_seconds: int = 6
@@ -99,7 +98,7 @@ class Achievement:
     global_percent: float | None = None
     unlocked: bool = False
     unlock_time: int = 0            # unix timestamp
-    source: str = ""                # "emulator", "steam", "manual"
+    source: str = ""                # "auto" (save files), "steam", "manual"
 
     @property
     def title(self) -> str:
@@ -183,8 +182,6 @@ class Game:
     added: int = field(default_factory=lambda: int(time.time()))
     achievements_total: int = 0     # cached for the grid
     achievements_unlocked: int = 0
-    emulator_installed: bool = False
-    emulator_save_path: str = ""    # custom path to the emulator's achievements.json
     run_as_admin: bool = False
     notes: str = ""
 

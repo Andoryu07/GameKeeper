@@ -1,7 +1,7 @@
-"""Where a game's unlocks come from: save-file rules and/or an emulator."""
+"""Where a game's unlocks come from: per-game save-file rules."""
 from __future__ import annotations
 
-from . import emulator, triggers
+from . import triggers
 from .storage import Game
 
 
@@ -11,8 +11,6 @@ def describe(game: Game) -> list[str]:
     rules = triggers.rules_for(game.appid, game.exe)
     if rules:
         out.append(f"{rules.name} save files")
-    if game.emulator_installed:
-        out.append("Steam API emulator")
     return out
 
 
@@ -27,7 +25,4 @@ def read_unlocks(game: Game) -> dict[str, int]:
     rules = triggers.rules_for(game.appid, game.exe)
     if rules:
         found.update(rules.read())
-    if game.emulator_installed:
-        for k, v in emulator.read_unlocks(game).items():
-            found.setdefault(k, v)
     return found

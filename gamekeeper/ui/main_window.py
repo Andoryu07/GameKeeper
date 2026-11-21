@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from .. import emulator, steam, tracking
+from .. import steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
@@ -150,8 +150,6 @@ class MainWindow(QMainWindow):
         p.edit.connect(self.edit_game)
         p.fetch_data.connect(self.fetch_steam_data)
         p.import_steam.connect(self.import_steam)
-        p.setup_emulator.connect(self.setup_emulator)
-        p.restore_emulator.connect(self.restore_emulator)
         p.remove.connect(self.remove_game)
         p.toggle_favorite.connect(self.toggle_favorite)
         p.open_folder.connect(self.open_folder)
@@ -511,7 +509,7 @@ class MainWindow(QMainWindow):
         g.achievements_unlocked = achset.unlocked_count
 
     # ------------------------------------------------------------------ #
-    # steam + emulator
+    # steam
     # ------------------------------------------------------------------ #
     def fetch_steam_data(self, game_id: str):
         g = self.library.get(game_id)
@@ -532,9 +530,6 @@ class MainWindow(QMainWindow):
             total, unlocked, err = result
             if total:
                 g.achievements_total, g.achievements_unlocked = total, unlocked
-            if g.emulator_installed:   # keep the emulator's list in sync
-                for dll in emulator.find_steam_dlls(g.game_dir):
-                    emulator.write_steam_settings(g, dll.parent)
             self._sync_unlocks(g, refresh=False)
             self._refresh_game(g)
             msg = f"{g.name}: cover art updated" + (f", {total} achievements." if total else ".")
@@ -559,8 +554,6 @@ class MainWindow(QMainWindow):
             g.steam_playtime = playtime
             achset = AchievementSet(g.id)
             self._update_counts(g, achset)
-            if g.emulator_installed:
-                emulator.push_unlocks(g)
             self._refresh_game(g)
             self.statusBar().clearMessage()
             QMessageBox.information(
@@ -571,57 +564,6 @@ class MainWindow(QMainWindow):
 
         run_async(lambda: steam.import_progress(g, settings), done,
                   lambda e: self._error("Import failed", e))
-
-    def setup_emulator(self, game_id: str):
-        g = self.library.get(game_id)
-        if not g:
-            return
-        if not self.settings.emulator_dir:
-            QMessageBox.information(
-                self, "Achievement tracking",
-                "First download a Steam API emulator (e.g. gbe_fork) and set its folder in Settings.")
-            self.open_settings()
-            if not self.settings.emulator_dir:
-                return
-        dlls = emulator.find_steam_dlls(g.game_dir)
-        if not dlls:
-            QMessageBox.warning(self, "Achievement tracking",
-                                "No steam_api.dll / steam_api64.dll found in this game's folder, "
-                                "so it can't be tracked this way.")
-            return
-        if AchievementSet(g.id).total == 0:
-            QMessageBox.information(self, "Achievement tracking",
-                                    "Pull the achievement list from Steam first (Manage → Steam data).")
-            return
-        listing = "\n".join(f"  • {d.relative_to(g.game_dir)}" for d in dlls)
-        if QMessageBox.question(
-                self, "Set up achievement tracking",
-                f"GameKeeper will back up and replace:\n{listing}\n\n"
-                "with the emulator's DLL, so the game reports achievements to GameKeeper instead of Steam. "
-                "You can undo this any time with 'Restore original Steam files'.\n\nContinue?") != QMessageBox.Yes:
-            return
-        try:
-            emulator.install(g, self.settings.emulator_dir)
-            emulator.push_unlocks(g)
-        except (emulator.EmulatorError, OSError) as e:
-            self._error("Setup failed", str(e))
-            return
-        g.emulator_installed = True
-        self._refresh_game(g)
-        self.statusBar().showMessage(f"Achievement tracking is on for {g.name}.", 8000)
-
-    def restore_emulator(self, game_id: str):
-        g = self.library.get(game_id)
-        if not g:
-            return
-        try:
-            n = emulator.restore(g)
-        except OSError as e:
-            self._error("Restore failed", str(e))
-            return
-        g.emulator_installed = False
-        self._refresh_game(g)
-        self.statusBar().showMessage(f"Restored {n} original file(s) for {g.name}.", 8000)
 
     # ------------------------------------------------------------------ #
     def open_settings(self):

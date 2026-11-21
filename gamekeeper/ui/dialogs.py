@@ -157,7 +157,7 @@ class AddGameDialog(QDialog):
         form = QFormLayout(box2)
         self.name = QLineEdit()
         self.args = QLineEdit()
-        self.args.setPlaceholderText("Optional, e.g. -windowed  (for emulators: the ROM path)")
+        self.args.setPlaceholderText("Optional, e.g. -windowed  (for retro emulators: the ROM path)")
         self.cats = CategoryPicker(library, [preset_category] if preset_category else [])
         form.addRow("Name", self.name)
         form.addRow("Launch options", self.args)
@@ -261,8 +261,6 @@ class EditGameDialog(QDialog):
         self.args = QLineEdit(game.args)
         self.workdir = QLineEdit(game.working_dir)
         self.workdir.setPlaceholderText("Default: the executable's folder")
-        self.save_path = QLineEdit(game.emulator_save_path)
-        self.save_path.setPlaceholderText("Only if the emulator saves somewhere unusual")
         self.cats = CategoryPicker(library, game.categories)
         self.notes = QPlainTextEdit(game.notes)
         self.notes.setMaximumHeight(70)
@@ -275,7 +273,6 @@ class EditGameDialog(QDialog):
         self.admin.setToolTip("Windows will ask for permission each time the game starts.")
         form.addRow("", self.admin)
         form.addRow("Start in", self.workdir)
-        form.addRow("Emulator save file", self.save_path)
         form.addRow("Categories", self.cats)
         form.addRow("Notes", self.notes)
         lay.addLayout(form)
@@ -306,7 +303,6 @@ class EditGameDialog(QDialog):
         g.args = self.args.text().strip()
         g.run_as_admin = self.admin.isChecked()
         g.working_dir = self.workdir.text().strip()
-        g.emulator_save_path = self.save_path.text().strip()
         g.categories = self.cats.selected()
         g.notes = self.notes.toPlainText()
         if self.linker.appid != g.appid:
@@ -341,19 +337,8 @@ class SettingsDialog(QDialog):
         f.addRow("", _hint("Language for achievement names, e.g. english, german, czech."))
         lay.addWidget(box)
 
-        box2 = QGroupBox("Achievement tracking")
+        box2 = QGroupBox("Achievement popups")
         f2 = QFormLayout(box2)
-        row = QHBoxLayout()
-        self.emu = QLineEdit(settings.emulator_dir)
-        self.emu.setPlaceholderText("Folder containing the emulator's steam_api64.dll")
-        pick = QPushButton("Browse...")
-        pick.clicked.connect(self._pick_emu)
-        row.addWidget(self.emu, 1)
-        row.addWidget(pick)
-        f2.addRow("Emulator folder", row)
-        f2.addRow("", _hint("Optional. A Steam API emulator for automatic unlocks. Antivirus software "
-                            "often flags these, so only use one you trust. Leave empty to unlock "
-                            "achievements by hand (right-click an achievement)."))
         self.sound = QCheckBox("Play a sound on unlock")
         self.sound.setChecked(settings.toast_sound)
         self.secs = QSpinBox()
@@ -371,17 +356,11 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
 
-    def _pick_emu(self):
-        d = QFileDialog.getExistingDirectory(self, "Emulator folder", self.emu.text())
-        if d:
-            self.emu.setText(d)
-
     def accept(self):
         s = self.settings
         s.steam_api_key = self.key.text().strip()
         s.steam_id = self.sid.text().strip()
         s.language = self.lang.text().strip() or "english"
-        s.emulator_dir = self.emu.text().strip()
         s.toast_sound = self.sound.isChecked()
         s.toast_seconds = self.secs.value()
         s.save()
