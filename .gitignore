@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+*.spec
+
+# Your library, covers, achievements and settings live here.
+# Keep it out of the repo (it can contain your Steam API key).
+data/
