@@ -161,6 +161,9 @@ class AddGameDialog(QDialog):
         self.cats = CategoryPicker(library, [preset_category] if preset_category else [])
         form.addRow("Name", self.name)
         form.addRow("Launch options", self.args)
+        self.admin = QCheckBox("Run as administrator")
+        self.admin.setToolTip("Windows will ask for permission each time the game starts.")
+        form.addRow("", self.admin)
         form.addRow("Categories", self.cats)
         lay.addWidget(box2)
 
@@ -230,7 +233,7 @@ class AddGameDialog(QDialog):
         name = self.name.text().strip() or self.linker.app_name or Path(exe).stem
         self.game = Game(name=name, exe=exe, args=self.args.text().strip(),
                          install_dir=self.folder.text(), appid=self.linker.appid,
-                         categories=self.cats.selected())
+                         categories=self.cats.selected(), run_as_admin=self.admin.isChecked())
         self.fetch_now = self.fetch.isChecked() and self.game.appid is not None
         super().accept()
 
@@ -267,6 +270,10 @@ class EditGameDialog(QDialog):
         form.addRow("Executable", exe_row)
         form.addRow("Game folder", self.install)
         form.addRow("Launch options", self.args)
+        self.admin = QCheckBox("Run as administrator")
+        self.admin.setChecked(game.run_as_admin)
+        self.admin.setToolTip("Windows will ask for permission each time the game starts.")
+        form.addRow("", self.admin)
         form.addRow("Start in", self.workdir)
         form.addRow("Emulator save file", self.save_path)
         form.addRow("Categories", self.cats)
@@ -297,6 +304,7 @@ class EditGameDialog(QDialog):
         g.exe = self.exe.text().strip()
         g.install_dir = self.install.text().strip()
         g.args = self.args.text().strip()
+        g.run_as_admin = self.admin.isChecked()
         g.working_dir = self.workdir.text().strip()
         g.emulator_save_path = self.save_path.text().strip()
         g.categories = self.cats.selected()

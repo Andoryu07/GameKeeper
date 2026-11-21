@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QVBoxLayout, QWidget,
 )
 
+from .. import tracking
 from ..runner import format_playtime
 from ..storage import Achievement, AchievementSet, Game
 from . import style
@@ -50,7 +51,7 @@ class Hero(QWidget):
 class AchievementRow(QFrame):
     context = Signal(str, object)
 
-    def __init__(self, ach: Achievement, achset: AchievementSet, reveal: bool):
+    def __init__(self, ach: Achievement, achset: AchievementSet, reveal: bool, manual_reason: str = ""):
         super().__init__()
         self.ach = ach
         self.setObjectName("AchRow")
@@ -95,11 +96,18 @@ class AchievementRow(QFrame):
             when.setStyleSheet(f"color: {style.GOLD}; font-size: 11px;")
             when.setAlignment(Qt.AlignRight)
             right.addWidget(when)
-            if ach.source and ach.source != "emulator":
+            if ach.source in ("steam", "manual"):
                 src = QLabel({"steam": "imported from Steam", "manual": "set manually"}.get(ach.source, ach.source))
                 src.setStyleSheet(f"color: {style.MUTED}; font-size: 10px;")
                 src.setAlignment(Qt.AlignRight)
                 right.addWidget(src)
+        elif manual_reason:
+            tag = QLabel("unlock by hand")
+            tag.setToolTip(manual_reason)
+            tag.setStyleSheet(f"color: {style.MUTED}; font-size: 10px; border: 1px solid {style.BORDER}; "
+                              "border-radius: 4px; padding: 1px 5px;")
+            tag.setAlignment(Qt.AlignRight)
+            right.addWidget(tag, 0, Qt.AlignRight)
         if ach.global_percent is not None:
             pct = QLabel(f"{ach.global_percent:.1f}% of players")
             pct.setStyleSheet(f"color: {style.MUTED}; font-size: 11px;")
@@ -297,9 +305,16 @@ class GamePage(QWidget):
         self.ach_title.setText(f"Achievements  ·  {a.unlocked_count} / {a.total}")
         self.bar.setMaximum(a.total)
         self.bar.setValue(a.unlocked_count)
-        if not g.emulator_installed:
-            self._notice("Automatic unlocks are off for this game. Set up tracking under "
-                         "Manage → Achievement tracking, or right-click an achievement to unlock it by hand.")
+        sources = tracking.describe(g)
+        manual = tracking.manual_only(g)
+        if sources:
+            text = "Automatic unlocks: on (reading " + " and ".join(sources) + ")."
+            if manual:
+                text += f" {len(manual)} achievement(s) marked 'unlock by hand' can't be detected - right-click them when you earn them."
+            self._notice(text)
+        else:
+            self._notice("Automatic unlocks aren't available for this game yet. "
+                         "Right-click an achievement to unlock it by hand.")
 
         items = list(a.items)
         mode = self.filter.currentText()
@@ -313,7 +328,7 @@ class GamePage(QWidget):
         else:
             items.sort(key=lambda x: (not x.unlocked, -x.unlock_time if x.unlocked else 0))
         for ach in items:
-            row = AchievementRow(ach, a, self.reveal.isChecked())
+            row = AchievementRow(ach, a, self.reveal.isChecked(), manual.get(ach.api_name, "") if sources else "")
             row.context.connect(self._ach_menu)
             self.list_box.addWidget(row)
 

@@ -1,17 +1,15 @@
 """Launching games, tracking playtime and watching for achievement unlocks."""
 from __future__ import annotations
 
-import os
-import shlex
-import subprocess
 import time
 from pathlib import Path
 
 import psutil
 from PySide6.QtCore import QThread, Signal
 
-from . import emulator
+from . import scanner, tracking
 from .storage import Game
+from .winlaunch import LaunchCancelled, NeedsAdmin, launch
 
 POLL_SECONDS = 2
 CHECKPOINT_SECONDS = 60
@@ -37,6 +35,8 @@ class GameSession(QThread):
     unlocked = Signal(str, str, int)       # game id, achievement api name, unlock time
     ended = Signal(str, int)               # game id, seconds since last checkpoint
     failed = Signal(str, str)              # game id, error message
+    needs_admin = Signal(str)              # game id: exe requires administrator rights
+    cancelled = Signal(str)                # game id: user declined the UAC prompt
 
     def __init__(self, game: Game, parent=None):
         super().__init__(parent)
@@ -51,53 +51,60 @@ class GameSession(QThread):
     def run(self):
         g = self.game
         try:
-            args = shlex.split(g.args, posix=(os.name != "nt")) if g.args else []
-            flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-            proc = subprocess.Popen([g.exe, *args], cwd=g.run_dir, creationflags=flags)
+            proc = launch(g.exe, g.args, g.run_dir, as_admin=g.run_as_admin)
+        except NeedsAdmin:
+            self.needs_admin.emit(g.id)
+            return
+        except LaunchCancelled:
+            self.cancelled.emit(g.id)
+            return
         except OSError as e:
             self.failed.emit(g.id, f"Couldn't start {Path(g.exe).name}: {e}")
             return
 
         self.started_at = time.time()
         last_cp = self.last_checkpoint = self.started_at
-        root_pid = proc.pid
         folders = {Path(g.exe).resolve().parent, g.game_dir.resolve()}
-        known = set(emulator.read_unlocks(g))   # unlocks that existed before launch
+        # Names of the game's executables. An elevated game hides its path
+        # from non-elevated programs, but its name is still visible.
+        exe_names = {p.name.lower() for p in scanner.find_executables(g.game_dir)} | {Path(g.exe).name.lower()}
+        known = set(tracking.read_unlocks(g))   # unlocks that existed before launch
 
-        while not self._stop:
-            time.sleep(POLL_SECONDS)
-            now = time.time()
+        try:
+            while not self._stop:
+                time.sleep(POLL_SECONDS)
+                now = time.time()
 
-            # achievements
-            current = emulator.read_unlocks(g)
-            for name, when in current.items():
+                for name, when in tracking.read_unlocks(g).items():
+                    if name not in known:
+                        known.add(name)
+                        self.unlocked.emit(g.id, name, int(now))
+
+                if now - last_cp >= CHECKPOINT_SECONDS:
+                    self.checkpoint.emit(g.id, int(now - last_cp))
+                    last_cp = self.last_checkpoint = now
+
+                if not self._game_alive(proc, folders, exe_names, now - self.started_at):
+                    break
+
+            # one last check, games often save right before exiting
+            time.sleep(1)
+            for name in tracking.read_unlocks(g):
                 if name not in known:
-                    known.add(name)
-                    self.unlocked.emit(g.id, name, when or int(now))
-
-            if now - last_cp >= CHECKPOINT_SECONDS:
-                self.checkpoint.emit(g.id, int(now - last_cp))
-                last_cp = self.last_checkpoint = now
-
-            if not self._game_alive(root_pid, folders, now - self.started_at):
-                break
-
-        # one last check, games often write the file right before exiting
-        for name, when in emulator.read_unlocks(g).items():
-            if name not in known:
-                self.unlocked.emit(g.id, name, when or int(time.time()))
+                    self.unlocked.emit(g.id, name, int(time.time()))
+        finally:
+            proc.close()
         self.ended.emit(g.id, int(time.time() - last_cp))
 
-    def _game_alive(self, root_pid: int, folders: set[Path], elapsed: float) -> bool:
-        if psutil.pid_exists(root_pid):
-            try:
-                if psutil.Process(root_pid).status() != psutil.STATUS_ZOMBIE:
-                    return True
-            except psutil.Error:
-                pass
-        for p in psutil.process_iter(["exe"]):
+    def _game_alive(self, proc, folders: set[Path], exe_names: set[str], elapsed: float) -> bool:
+        if proc.alive():
+            return True
+        for p in psutil.process_iter(["exe", "name"]):
             exe = p.info.get("exe")
-            if exe and any(_under(exe, f) for f in folders):
+            if exe:
+                if any(_under(exe, f) for f in folders):
+                    return True
+            elif (p.info.get("name") or "").lower() in exe_names:
                 return True
         # a launcher may exit a moment before the real game shows up
         return elapsed < HANDOFF_GRACE

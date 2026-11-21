@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from .. import emulator, steam
+from .. import emulator, steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
@@ -240,6 +240,8 @@ class MainWindow(QMainWindow):
         g = self.library.get(game_id)
         if not g:
             return
+        if game_id not in self.sessions:
+            self._sync_unlocks(g, refresh=False)
         self.page.show_game(g)
         self.page.set_running(game_id in self.sessions)
         self.stack.setCurrentIndex(1)
@@ -398,7 +400,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Can't start game",
                                 f"The executable wasn't found:\n{g.exe}\n\nUse Edit to point to its new location.")
             return
-        self._sync_emulator_unlocks(g)
+        self._sync_unlocks(g)
         now = int(time.time())
         g.last_played = now
         g.first_played = g.first_played or now
@@ -408,6 +410,8 @@ class MainWindow(QMainWindow):
         s.unlocked.connect(self._on_unlock)
         s.ended.connect(self._on_ended)
         s.failed.connect(self._on_failed)
+        s.needs_admin.connect(self._on_needs_admin)
+        s.cancelled.connect(self._on_cancelled)
         self.sessions[game_id] = s
         s.start()
         self.page.set_running(self.page.game is not None and self.page.game.id in self.sessions)
@@ -436,12 +440,32 @@ class MainWindow(QMainWindow):
         self.page.set_running(False)
         QMessageBox.warning(self, "Can't start game", msg)
 
+    def _on_needs_admin(self, game_id: str):
+        self.sessions.pop(game_id, None)
+        self.page.set_running(False)
+        g = self.library.get(game_id)
+        if not g:
+            return
+        if QMessageBox.question(
+                self, "Administrator rights needed",
+                f"{g.name} asks to be run as administrator.\n\n"
+                "Start it as administrator? Windows will ask for permission each time. "
+                "This is remembered for this game (change it under Edit).") == QMessageBox.Yes:
+            g.run_as_admin = True
+            self.library.save()
+            self.play(game_id)
+
+    def _on_cancelled(self, game_id: str):
+        self.sessions.pop(game_id, None)
+        self.page.set_running(False)
+        self.statusBar().showMessage("Launch cancelled.", 6000)
+
     def _on_unlock(self, game_id: str, api_name: str, when: int):
         g = self.library.get(game_id)
         if not g:
             return
         achset = AchievementSet(game_id)
-        ach = achset.unlock(api_name, when, source="emulator")
+        ach = achset.unlock(api_name, when, source="auto")
         if not ach:
             return
         achset.save()
@@ -462,18 +486,24 @@ class MainWindow(QMainWindow):
         self._update_counts(g, achset)
         self._refresh_game(g)
 
-    def _sync_emulator_unlocks(self, g: Game):
-        """Quietly import unlocks the emulator saved while GameKeeper wasn't watching."""
-        if not g.emulator_installed:
+    def _sync_unlocks(self, g: Game, refresh: bool = True):
+        """Quietly import unlocks made while GameKeeper wasn't watching
+        (e.g. progress from before the game was added)."""
+        if not tracking.describe(g):
             return
         achset = AchievementSet(g.id)
+        if not achset.total:
+            return
         changed = False
-        for name, when in emulator.read_unlocks(g).items():
-            changed |= achset.unlock(name, when or None, source="emulator") is not None
+        for name, when in tracking.read_unlocks(g).items():
+            changed |= achset.unlock(name, when or None, source="auto") is not None
         if changed:
             achset.save()
             self._update_counts(g, achset)
-            self._refresh_game(g)
+            if refresh:
+                self._refresh_game(g)
+            else:
+                self.library.save()
 
     @staticmethod
     def _update_counts(g: Game, achset: AchievementSet):
@@ -505,6 +535,7 @@ class MainWindow(QMainWindow):
             if g.emulator_installed:   # keep the emulator's list in sync
                 for dll in emulator.find_steam_dlls(g.game_dir):
                     emulator.write_steam_settings(g, dll.parent)
+            self._sync_unlocks(g, refresh=False)
             self._refresh_game(g)
             msg = f"{g.name}: cover art updated" + (f", {total} achievements." if total else ".")
             self.statusBar().showMessage(msg, 8000)

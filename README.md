@@ -59,36 +59,43 @@ unlocks and playtime**. Your Steam profile's *Game details* need to be public.
 
 ### Automatic unlocks while playing
 
-Steam games report achievements through `steam_api.dll` / `steam_api64.dll`.
-GameKeeper can swap that file for a Steam API emulator, which records unlocks
-locally instead of sending them to Steam. GameKeeper watches that record while
-you play and shows the popup.
+GameKeeper reads a supported game's own save files while you play and unlocks
+achievements when the save shows you've earned them. It doesn't change any
+game files. Progress you made before adding the game is picked up too, quietly,
+without popups.
 
-1. Get a Steam API emulator, for example gbe_fork (the maintained fork of the
-   Goldberg emulator) and extract it anywhere.
+Supported games:
 
-   > **Antivirus warning:** antivirus software often flags Steam API emulators,
-   > and downloads of them have been flagged as trojans. GameKeeper does not
-   > ship or download one. Only use an emulator you trust, never disable your
-   > antivirus for it, and remember this whole feature is optional: you can
-   > always unlock achievements by hand instead.
-2. In **Settings → Emulator folder**, pick the extracted folder.
-3. On a game's page: pull the achievement list first, then
-   **Manage → Achievement tracking → Set up automatic tracking**.
+| Game | Automatic | By hand | Notes |
+|---|---|---|---|
+| Stardew Valley | 47 of 49 | Fector's Challenge, Protector Of The Valley | Unlocks appear when the day ends and the game saves. |
 
-GameKeeper backs up the original DLLs (`*.gamekeeper-original`) and writes the
-emulator's `steam_settings/` folder with the app id and achievement list.
-**Restore original Steam files** puts everything back.
+Each game's rules live in `gamekeeper/triggers/` (one file per game; see
+`stardew_valley.py`). For games without rules, right-click an achievement to
+unlock it by hand.
 
-Limitations:
+#### Optional: Steam API emulator
 
-- Only for offline, single-player games. Don't use it on anything with online
-  play or anti-cheat.
-- Games protected by Steam's DRM wrapper won't start with an emulator.
-- Unlocks stay in GameKeeper and don't sync back to your Steam profile.
+For Steam games with no save-file rules, GameKeeper can also swap the game's
+`steam_api.dll` / `steam_api64.dll` for a Steam API emulator, which records
+unlocks locally. Set the emulator's folder in **Settings**, pull the
+achievement list, then use **Manage → Achievement tracking → Set up automatic
+tracking**. The original DLLs are backed up (`*.gamekeeper-original`) and
+**Restore original Steam files** puts them back.
 
-Games that can't use the emulator can still have their achievement list:
-right-click an achievement to unlock it by hand.
+> **Antivirus warning:** antivirus software often flags Steam API emulators,
+> and downloads of them have been flagged as trojans. GameKeeper doesn't ship
+> or download one. Only use an emulator you trust and never disable your
+> antivirus for it. This is entirely optional.
+
+Emulators only suit offline, single-player games, won't start games protected
+by Steam's DRM wrapper, and their unlocks don't sync back to Steam.
+
+### Run as administrator
+
+Tick **Run as administrator** when adding a game or under **Edit**. Windows
+shows its permission prompt each time the game starts. If a game needs admin
+rights and the box isn't ticked, GameKeeper notices and offers to turn it on.
 
 ### Popups
 
@@ -104,7 +111,10 @@ gamekeeper/
   storage.py            data folder, library, games, achievements
   scanner.py            finding the game .exe in a folder
   steam.py              Steam search, artwork, achievement data, imports
-  emulator.py           DLL swap/restore, steam_settings, reading unlocks
+  triggers/             per-game rules that read save files for unlocks
+  tracking.py           combines unlock sources for a game
+  emulator.py           optional DLL swap/restore for a Steam API emulator
   runner.py             launching games, playtime, watching for unlocks
+  winlaunch.py          starting games, including as administrator
   ui/                   the Qt interface
 ```

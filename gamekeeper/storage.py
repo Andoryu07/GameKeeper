@@ -185,6 +185,7 @@ class Game:
     achievements_unlocked: int = 0
     emulator_installed: bool = False
     emulator_save_path: str = ""    # custom path to the emulator's achievements.json
+    run_as_admin: bool = False
     notes: str = ""
 
     @property
