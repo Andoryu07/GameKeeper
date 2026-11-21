@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import threading
 from pathlib import Path
 
 
@@ -31,6 +32,7 @@ class GameRules:
     def __init__(self):
         self._sig = None
         self._cache: dict[str, int] = {}
+        self._lock = threading.Lock()   # read from the UI and the game session thread
 
     def watch_files(self) -> list[Path]:
         """Files whose changes mean the game saved."""
@@ -42,6 +44,10 @@ class GameRules:
 
     def read(self) -> dict[str, int]:
         """``evaluate()``, but only re-run when a watched file changed."""
+        with self._lock:
+            return self._read()
+
+    def _read(self) -> dict[str, int]:
         sig = []
         for p in self.watch_files():
             try:

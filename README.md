@@ -23,7 +23,10 @@ store client.
    py -m pip install -r requirements.txt
    ```
 
-3. Start it with `py main.py`, or double-click `GameKeeper.bat` (no console window).
+3. Start it with `py main.py`, or double-click `GameKeeper.bat`.
+4. On first start GameKeeper offers to put a shortcut on your desktop. After
+   that, just double-click the shortcut. You can also create desktop and
+   Start menu shortcuts any time in **Settings → Shortcuts**.
 
 If `python` or `py` gives "The system cannot find the path specified", Windows is
 using its Microsoft Store placeholder instead of a real Python. Install Python
@@ -86,6 +89,15 @@ The popup appears in the bottom-right corner over windowed and borderless
 games. Exclusive fullscreen games draw over everything, so switch those to
 borderless to see it. Sound and duration are in Settings.
 
+## Keyboard shortcuts
+
+| Keys | Action |
+|---|---|
+| Ctrl+F | Search games, or achievements on a game's page |
+| Ctrl+N | Add a game |
+| Ctrl+, | Settings |
+| Esc / Backspace | Back to the library (or clear the search box) |
+
 ## Project layout
 
 ```
@@ -98,5 +110,6 @@ gamekeeper/
   tracking.py           combines unlock sources for a game
   runner.py             launching games, playtime, watching for unlocks
   winlaunch.py          starting games, including as administrator
+  shortcut.py           creating desktop / Start menu shortcuts
   ui/                   the Qt interface
 ```

@@ -75,6 +75,9 @@ class Settings:
     language: str = "english"
     toast_sound: bool = True
     toast_seconds: int = 6
+    shortcut_offered: bool = False
+    window_geometry: str = ""       # saved window size/position
+    cover_size: int = 160
 
     @classmethod
     def load(cls) -> "Settings":

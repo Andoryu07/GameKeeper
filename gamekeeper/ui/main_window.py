@@ -6,13 +6,15 @@ import subprocess
 import sys
 import time
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QComboBox, QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QStackedWidget, QStyle,
+    QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
-from .. import steam, tracking
+from .. import shortcut, steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
@@ -24,6 +26,26 @@ from .workers import run_async
 
 ALL, FAVORITES, RECENT, UNCATEGORIZED = "__all__", "__fav__", "__recent__", "__none__"
 SORTS = ["Name", "Recently played", "Most played", "Recently added", "Achievement progress"]
+ROLE_COUNT = Qt.UserRole + 2
+
+
+class SidebarDelegate(QStyledItemDelegate):
+    """Sidebar entry with its game count right-aligned."""
+
+    def paint(self, p, option, index):
+        super().paint(p, option, index)
+        n = index.data(ROLE_COUNT)
+        if n is None:
+            return
+        p.save()
+        selected = bool(option.state & QStyle.State_Selected)
+        p.setPen(QColor("white" if selected else style.MUTED))
+        f = p.font()
+        f.setPixelSize(11)
+        p.setFont(f)
+        r = option.rect.adjusted(0, 0, -22, 0)
+        p.drawText(r, Qt.AlignRight | Qt.AlignVCenter, str(n))
+        p.restore()
 
 
 class MainWindow(QMainWindow):
@@ -31,7 +53,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("GameKeeper")
         self.resize(1280, 820)
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(820, 560)
         self.library = Library()
         self.settings = Settings.load()
         self.sessions: dict[str, GameSession] = {}
@@ -54,8 +76,76 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.stack, 1)
 
         self.statusBar().setStyleSheet(f"color: {style.MUTED}; background: {style.PANEL}; border-top: 1px solid {style.BORDER};")
+        self.page.session_start_fn = lambda gid: self.sessions[gid].started_at if gid in self.sessions else 0.0
+        self.grid.set_cover_size(self.settings.cover_size)
+        self.cover_slider.setValue(self.settings.cover_size)
         self.refresh_sidebar()
         self.refresh_grid()
+        self._shortcuts()
+        if self.settings.window_geometry:
+            self.restoreGeometry(QByteArray.fromBase64(self.settings.window_geometry.encode()))
+        if shortcut.supported() and not self.settings.shortcut_offered:
+            QTimer.singleShot(800, self._offer_shortcut)
+
+    def _shortcuts(self):
+        QShortcut(QKeySequence("Ctrl+F"), self, self._focus_search)
+        QShortcut(QKeySequence("Ctrl+N"), self, self.add_game)
+        QShortcut(QKeySequence("Ctrl+,"), self, self.open_settings)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, self._escape)
+        QShortcut(QKeySequence(Qt.Key_Backspace), self, self._escape)
+
+    def _focus_search(self):
+        if self.stack.currentIndex() == 1:
+            self.page.search.setFocus()
+        else:
+            self.search.setFocus()
+            self.search.selectAll()
+
+    def _escape(self):
+        if self.focusWidget() in (self.search, self.page.search) and self.focusWidget().text():
+            self.focusWidget().clear()
+        elif self.stack.currentIndex() == 1:
+            self.show_library()
+
+    def _offer_shortcut(self):
+        self.settings.shortcut_offered = True
+        self.settings.save()
+        if QMessageBox.question(
+                self, "Desktop shortcut",
+                "Create a GameKeeper shortcut on your desktop?\n\n"
+                "You can also do this later in Settings.") == QMessageBox.Yes:
+            from .icon import ico_file
+            try:
+                path = shortcut.create("desktop", ico_file())
+                self.statusBar().showMessage(f"Shortcut created: {path}", 8000)
+            except shortcut.ShortcutError as e:
+                QMessageBox.warning(self, "Shortcut", str(e))
+
+    def _switch_page(self, index: int):
+        """Change page with a quick fade-in."""
+        if self.stack.currentIndex() == index:
+            return
+        self.stack.setCurrentIndex(index)
+        w = self.stack.currentWidget()
+        eff = QGraphicsOpacityEffect(w)
+        w.setGraphicsEffect(eff)
+        anim = QPropertyAnimation(eff, b"opacity", w)
+        anim.setDuration(160)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.finished.connect(lambda: w.setGraphicsEffect(None))   # effects slow painting; drop it after
+        anim.start()
+        self._page_anim = anim
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        w = self.width()
+        self.sidebar.setFixedWidth(230 if w > 1000 else 190)
+        self.search.setFixedWidth(220 if w > 1150 else 150)
+        self.sort.setVisible(w > 960)
+        self.cover_slider.setVisible(w > 1060)
+        self.size_icon.setVisible(w > 1060)
 
     # ------------------------------------------------------------------ #
     # layout
@@ -64,6 +154,7 @@ class MainWindow(QMainWindow):
         side = QWidget()
         side.setObjectName("Sidebar")
         side.setFixedWidth(230)
+        self.sidebar = side
         v = QVBoxLayout(side)
         v.setContentsMargins(0, 0, 0, 8)
         v.setSpacing(0)
@@ -77,6 +168,8 @@ class MainWindow(QMainWindow):
         self.views = QListWidget()
         self.views.setObjectName("Categories")
         self.views.setFixedHeight(4 * 36 + 6)
+        self.views.setItemDelegate(SidebarDelegate(self.views))
+        self.views.setCursor(Qt.PointingHandCursor)
         self.views.itemClicked.connect(lambda it: self._select_filter(it.data(Qt.UserRole), self.views))
         v.addWidget(self.views)
 
@@ -94,6 +187,8 @@ class MainWindow(QMainWindow):
         v.addLayout(row)
         self.cats = QListWidget()
         self.cats.setObjectName("Categories")
+        self.cats.setItemDelegate(SidebarDelegate(self.cats))
+        self.cats.setCursor(Qt.PointingHandCursor)
         self.cats.setContextMenuPolicy(Qt.CustomContextMenu)
         self.cats.customContextMenuRequested.connect(self._category_menu)
         self.cats.itemClicked.connect(lambda it: self._select_filter(it.data(Qt.UserRole), self.cats))
@@ -118,7 +213,7 @@ class MainWindow(QMainWindow):
         top.addWidget(self.count)
         top.addStretch()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search...")
+        self.search.setPlaceholderText("Search games  (Ctrl+F)")
         self.search.setFixedWidth(220)
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.refresh_grid)
@@ -127,7 +222,20 @@ class MainWindow(QMainWindow):
         self.sort.currentIndexChanged.connect(self.refresh_grid)
         addbtn = QPushButton("+  Add game")
         addbtn.setObjectName("Primary")
+        addbtn.setToolTip("Add a game (Ctrl+N)")
+        addbtn.setCursor(Qt.PointingHandCursor)
         addbtn.clicked.connect(self.add_game)
+        self.size_icon = QLabel("▣")
+        self.size_icon.setToolTip("Cover size")
+        self.size_icon.setStyleSheet(f"color: {style.MUTED}; font-size: 15px;")
+        self.cover_slider = QSlider(Qt.Horizontal)
+        self.cover_slider.setRange(110, 240)
+        self.cover_slider.setFixedWidth(110)
+        self.cover_slider.setToolTip("Cover size")
+        self.cover_slider.valueChanged.connect(self._cover_size_changed)
+        top.addWidget(self.size_icon)
+        top.addWidget(self.cover_slider)
+        top.addSpacing(6)
         top.addWidget(self.search)
         top.addWidget(self.sort)
         top.addWidget(addbtn)
@@ -167,14 +275,16 @@ class MainWindow(QMainWindow):
             (RECENT, "\U0001F552   Recently played", sum(1 for g in games if g.last_played)),
             (UNCATEGORIZED, "\U0001F4C2   Uncategorized", sum(1 for g in games if not g.categories)),
         ):
-            it = QListWidgetItem(f"{label}   {n}")
+            it = QListWidgetItem(label)
+            it.setData(ROLE_COUNT, n)
             it.setData(Qt.UserRole, key)
             it.setSizeHint(QSize(0, 34))
             self.views.addItem(it)
         self.cats.clear()
         for c in self.library.categories:
             n = sum(1 for g in games if c in g.categories)
-            it = QListWidgetItem(f"{c}   {n}")
+            it = QListWidgetItem(c)
+            it.setData(ROLE_COUNT, n)
             it.setData(Qt.UserRole, c)
             it.setSizeHint(QSize(0, 34))
             self.cats.addItem(it)
@@ -230,19 +340,30 @@ class MainWindow(QMainWindow):
         self.empty.setVisible(not games)
         self.grid.setVisible(bool(games))
 
+    def _cover_size_changed(self, w: int):
+        self.grid.set_cover_size(w)
+        self.refresh_grid()
+        self.settings.cover_size = w
+        self._save_settings_later()
+
+    def _save_settings_later(self):
+        if not hasattr(self, "_save_timer"):
+            self._save_timer = QTimer(self, singleShot=True, interval=800, timeout=self.settings.save)
+        self._save_timer.start()
+
     def show_library(self):
-        self.stack.setCurrentIndex(0)
+        self._switch_page(0)
         self.refresh_grid()
 
     def open_game(self, game_id: str):
         g = self.library.get(game_id)
         if not g:
             return
-        if game_id not in self.sessions:
-            self._sync_unlocks(g, refresh=False)
         self.page.show_game(g)
-        self.page.set_running(game_id in self.sessions)
-        self.stack.setCurrentIndex(1)
+        self._update_running_ui()
+        self._switch_page(1)
+        if game_id not in self.sessions:
+            self._sync_unlocks_async(g)
 
     def _refresh_game(self, g: Game):
         """Re-render whatever is showing this game."""
@@ -412,7 +533,7 @@ class MainWindow(QMainWindow):
         s.cancelled.connect(self._on_cancelled)
         self.sessions[game_id] = s
         s.start()
-        self.page.set_running(self.page.game is not None and self.page.game.id in self.sessions)
+        self._update_running_ui()
         self.statusBar().showMessage(f"Playing {g.name}...")
 
     def _on_checkpoint(self, game_id: str, secs: int):
@@ -430,17 +551,22 @@ class MainWindow(QMainWindow):
             self._refresh_game(g)
             session_len = int(time.time() - s.started_at) if s else secs
             self.statusBar().showMessage(f"Finished {g.name} - played {session_len // 60} min this session.", 10000)
-        if self.page.game and self.page.game.id == game_id:
-            self.page.set_running(False)
+        self._update_running_ui()
+
+    def _update_running_ui(self):
+        self.grid.running = set(self.sessions)
+        self.grid.viewport().update()
+        if self.page.game:
+            self.page.set_running(self.page.game.id in self.sessions)
 
     def _on_failed(self, game_id: str, msg: str):
         self.sessions.pop(game_id, None)
-        self.page.set_running(False)
+        self._update_running_ui()
         QMessageBox.warning(self, "Can't start game", msg)
 
     def _on_needs_admin(self, game_id: str):
         self.sessions.pop(game_id, None)
-        self.page.set_running(False)
+        self._update_running_ui()
         g = self.library.get(game_id)
         if not g:
             return
@@ -455,7 +581,7 @@ class MainWindow(QMainWindow):
 
     def _on_cancelled(self, game_id: str):
         self.sessions.pop(game_id, None)
-        self.page.set_running(False)
+        self._update_running_ui()
         self.statusBar().showMessage("Launch cancelled.", 6000)
 
     def _on_unlock(self, game_id: str, api_name: str, when: int):
@@ -484,16 +610,18 @@ class MainWindow(QMainWindow):
         self._update_counts(g, achset)
         self._refresh_game(g)
 
-    def _sync_unlocks(self, g: Game, refresh: bool = True):
-        """Quietly import unlocks made while GameKeeper wasn't watching
-        (e.g. progress from before the game was added)."""
+    def _sync_unlocks_async(self, g: Game):
+        """Check the game's saves in the background, then apply any new unlocks."""
         if not tracking.describe(g):
             return
+        run_async(lambda: tracking.read_unlocks(g), lambda found: self._apply_unlocks(g, found))
+
+    def _apply_unlocks(self, g: Game, found: dict, refresh: bool = True):
         achset = AchievementSet(g.id)
         if not achset.total:
             return
         changed = False
-        for name, when in tracking.read_unlocks(g).items():
+        for name, when in found.items():
             changed |= achset.unlock(name, when or None, source="auto") is not None
         if changed:
             achset.save()
@@ -502,6 +630,12 @@ class MainWindow(QMainWindow):
                 self._refresh_game(g)
             else:
                 self.library.save()
+
+    def _sync_unlocks(self, g: Game, refresh: bool = True):
+        """Quietly import unlocks made while GameKeeper wasn't watching
+        (e.g. progress from before the game was added)."""
+        if tracking.describe(g):
+            self._apply_unlocks(g, tracking.read_unlocks(g), refresh)
 
     @staticmethod
     def _update_counts(g: Game, achset: AchievementSet):
@@ -567,7 +701,13 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ #
     def open_settings(self):
-        if SettingsDialog(self.settings, self).exec():
+        def test(sound, secs):
+            old = (self.toasts.enabled_sound, self.toasts.seconds)
+            self.toasts.enabled_sound, self.toasts.seconds = sound, secs
+            self.toasts.show("Test achievement", "This is how unlocks will look")
+            self.toasts.enabled_sound, self.toasts.seconds = old
+
+        if SettingsDialog(self.settings, self, test_popup=test).exec():
             self._apply_settings()
 
     def _apply_settings(self):
@@ -595,4 +735,6 @@ class MainWindow(QMainWindow):
                 if g and s.last_checkpoint:   # keep the time since the last checkpoint
                     g.playtime += int(time.time() - s.last_checkpoint)
         self.library.save()
+        self.settings.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
+        self.settings.save()
         e.accept()

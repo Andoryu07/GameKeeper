@@ -76,6 +76,17 @@ QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
 QTabBar::tab {{ background: transparent; color: {MUTED}; padding: 8px 14px; border: none; }}
 QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; }}
 
+#Segmented {{ background: {PANEL_2}; border: 1px solid {BORDER}; border-radius: 8px; }}
+#Segmented QPushButton {{ background: transparent; border: none; border-radius: 6px; padding: 5px 12px; color: {MUTED}; }}
+#Segmented QPushButton:hover {{ color: {TEXT}; }}
+#Segmented QPushButton:checked {{ background: {ACCENT}; color: white; font-weight: 600; }}
+
+QSlider::groove:horizontal {{ height: 4px; background: {BORDER}; border-radius: 2px; }}
+QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 2px; }}
+QSlider::handle:horizontal {{ background: {TEXT}; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }}
+QSlider::handle:horizontal:hover {{ background: white; }}
+QSlider {{ background: transparent; }}
+
 QCheckBox::indicator, QListWidget::indicator {{
     width: 15px; height: 15px; border: 1px solid #4a5568; border-radius: 4px; background: {PANEL_2};
 }}

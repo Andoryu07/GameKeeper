@@ -5,7 +5,7 @@ import hashlib
 
 from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
-    QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QStandardItem,
+    QColor, QFont, QImageReader, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QStandardItem,
     QStandardItemModel,
 )
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
@@ -14,14 +14,14 @@ from ..runner import format_playtime
 from ..storage import Game
 from . import style
 
-COVER_W, COVER_H = 160, 240
-CARD_W, CARD_H = COVER_W + 16, COVER_H + 62
 ROLE_GAME = Qt.UserRole + 1
+DEFAULT_COVER_W = 160
 
 _cache: dict[str, QPixmap] = {}
 
 
-def cover_pixmap(game: Game, w: int = COVER_W, h: int = COVER_H) -> QPixmap:
+def cover_pixmap(game: Game, w: int = DEFAULT_COVER_W, h: int | None = None) -> QPixmap:
+    h = h or int(w * 1.5)
     path = game.cover_path
     try:
         stamp = path.stat().st_mtime if path.exists() else 0
@@ -30,10 +30,23 @@ def cover_pixmap(game: Game, w: int = COVER_W, h: int = COVER_H) -> QPixmap:
     key = f"{game.id}:{stamp}:{w}x{h}"
     if key in _cache:
         return _cache[key]
-    pm = QPixmap(str(path)) if stamp else QPixmap()
+    pm = _load_scaled(str(path), w, h) if stamp else QPixmap()
     pm = _fit(pm, w, h) if not pm.isNull() else placeholder(game.name, w, h)
     _cache[key] = pm
     return pm
+
+
+def _load_scaled(path: str, w: int, h: int) -> QPixmap:
+    """Decode the image straight at (about) the size it's shown at. Much faster
+    than loading the full image and shrinking it afterwards."""
+    reader = QImageReader(path)
+    reader.setAutoTransform(True)
+    size = reader.size()
+    if size.isValid() and size.width() > w * 2:
+        size.scale(w * 2, h * 2, Qt.KeepAspectRatioByExpanding)   # 2x for sharp high-DPI screens
+        reader.setScaledSize(size)
+    img = reader.read()
+    return QPixmap.fromImage(img) if not img.isNull() else QPixmap()
 
 
 def _fit(pm: QPixmap, w: int, h: int) -> QPixmap:
@@ -63,13 +76,18 @@ def placeholder(name: str, w: int, h: int) -> QPixmap:
 
 
 class GameDelegate(QStyledItemDelegate):
+    def __init__(self, view: "LibraryView"):
+        super().__init__(view)
+        self.view = view
+
     def sizeHint(self, option, index):
-        return QSize(CARD_W, CARD_H)
+        return QSize(self.view.cover_w + 16, self.view.cover_h + 62)
 
     def paint(self, p: QPainter, option, index):
         game: Game = index.data(ROLE_GAME)
         if game is None:
             return
+        COVER_W, COVER_H = self.view.cover_w, self.view.cover_h
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
         r = option.rect
@@ -81,7 +99,15 @@ class GameDelegate(QStyledItemDelegate):
         path = QPainterPath()
         path.addRoundedRect(cover, 8, 8)
         p.setClipPath(path)
-        p.drawPixmap(cover, cover_pixmap(game))
+        p.drawPixmap(cover, cover_pixmap(game, COVER_W, COVER_H))
+        if game.id in self.view.running:
+            p.fillRect(QRect(cover.x(), cover.y(), COVER_W, 26), QColor(63, 191, 127, 225))
+            f = p.font()
+            f.setPixelSize(11)
+            f.setBold(True)
+            p.setFont(f)
+            p.setPen(QColor("white"))
+            p.drawText(QRect(cover.x(), cover.y(), COVER_W, 26), Qt.AlignCenter, "●  PLAYING")
         if hovered:
             p.fillRect(cover, QColor(255, 255, 255, 22))
         p.setClipping(False)
@@ -111,7 +137,8 @@ class GameDelegate(QStyledItemDelegate):
             f.setPixelSize(16)
             p.setFont(f)
             p.setPen(QColor(style.GOLD))
-            p.drawText(QRect(cover.x() + 8, cover.y() + 6, 24, 24), Qt.AlignCenter, "★")
+            top = cover.y() + (30 if game.id in self.view.running else 6)
+            p.drawText(QRect(cover.x() + 8, top, 24, 24), Qt.AlignCenter, "★")
 
         # title + playtime
         f = p.font()
@@ -148,12 +175,21 @@ class LibraryView(QListView):
         self.setVerticalScrollMode(QListView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(24)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.cover_w, self.cover_h = DEFAULT_COVER_W, int(DEFAULT_COVER_W * 1.5)
+        self.running: set[str] = set()
         self.model_ = QStandardItemModel(self)
         self.setModel(self.model_)
         self.setItemDelegate(GameDelegate(self))
         self.doubleClicked.connect(lambda idx: self.open_game.emit(idx.data(ROLE_GAME).id))
         self.clicked.connect(lambda idx: self.open_game.emit(idx.data(ROLE_GAME).id))
+        self.setCursor(Qt.PointingHandCursor)
         self.customContextMenuRequested.connect(self._ctx)
+
+    def set_cover_size(self, w: int):
+        self.cover_w, self.cover_h = w, int(w * 1.5)
+        self.setGridSize(QSize())
+        self.scheduleDelayedItemsLayout()
+        self.viewport().update()
 
     def set_games(self, games: list[Game]):
         self.model_.clear()

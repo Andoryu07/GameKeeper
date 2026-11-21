@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
     QSpinBox, QVBoxLayout, QWidget,
 )
 
-from .. import scanner, steam
+from .. import scanner, shortcut, steam
 from ..storage import Game, Library, Settings
-from . import style
+from . import icon, style
 from .workers import run_async
 
 
@@ -313,10 +313,10 @@ class EditGameDialog(QDialog):
 
 # --------------------------------------------------------------------------- #
 class SettingsDialog(QDialog):
-    def __init__(self, settings: Settings, parent=None):
+    def __init__(self, settings: Settings, parent=None, test_popup=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.resize(560, 520)
+        self.resize(560, 620)
         self.settings = settings
         lay = QVBoxLayout(self)
 
@@ -347,7 +347,25 @@ class SettingsDialog(QDialog):
         self.secs.setSuffix(" s")
         f2.addRow("", self.sound)
         f2.addRow("Popup duration", self.secs)
+        if test_popup:
+            test = QPushButton("Show a test popup")
+            test.clicked.connect(lambda: test_popup(self.sound.isChecked(), self.secs.value()))
+            f2.addRow("", test)
         lay.addWidget(box2)
+
+        box3 = QGroupBox("Shortcuts")
+        b3 = QVBoxLayout(box3)
+        row = QHBoxLayout()
+        for label, where in (("Create desktop shortcut", "desktop"), ("Add to Start menu", "startmenu")):
+            btn = QPushButton(label)
+            btn.setEnabled(shortcut.supported())
+            btn.clicked.connect(lambda _=False, w=where: self._make_shortcut(w))
+            row.addWidget(btn)
+        row.addStretch()
+        b3.addLayout(row)
+        b3.addWidget(_hint("Starts GameKeeper with a double-click, without a console window."
+                           if shortcut.supported() else "Shortcuts can only be created on Windows."))
+        lay.addWidget(box3)
         lay.addStretch()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -355,6 +373,14 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
+
+    def _make_shortcut(self, where: str):
+        try:
+            path = shortcut.create(where, icon.ico_file())
+        except shortcut.ShortcutError as e:
+            QMessageBox.warning(self, "Shortcut", str(e))
+            return
+        QMessageBox.information(self, "Shortcut", f"Created:\n{path}")
 
     def accept(self):
         s = self.settings
