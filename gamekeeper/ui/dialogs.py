@@ -343,8 +343,9 @@ class SettingsDialog(QDialog):
         row.addWidget(self.emu, 1)
         row.addWidget(pick)
         f2.addRow("Emulator folder", row)
-        f2.addRow("", _hint("A Steam API emulator such as gbe_fork (the maintained Goldberg fork). "
-                            "Download its release and point this at the extracted folder."))
+        f2.addRow("", _hint("Optional. A Steam API emulator for automatic unlocks. Antivirus software "
+                            "often flags these, so only use one you trust. Leave empty to unlock "
+                            "achievements by hand (right-click an achievement)."))
         self.sound = QCheckBox("Play a sound on unlock")
         self.sound.setChecked(settings.toast_sound)
         self.secs = QSpinBox()

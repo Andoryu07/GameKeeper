@@ -64,9 +64,14 @@ GameKeeper can swap that file for a Steam API emulator, which records unlocks
 locally instead of sending them to Steam. GameKeeper watches that record while
 you play and shows the popup.
 
-1. Download a Steam API emulator release, for example
-   [gbe_fork](https://github.com/Detanup01/gbe_fork/releases) (the maintained
-   fork of the Goldberg emulator), and extract it anywhere.
+1. Get a Steam API emulator, for example gbe_fork (the maintained fork of the
+   Goldberg emulator) and extract it anywhere.
+
+   > **Antivirus warning:** antivirus software often flags Steam API emulators,
+   > and downloads of them have been flagged as trojans. GameKeeper does not
+   > ship or download one. Only use an emulator you trust, never disable your
+   > antivirus for it, and remember this whole feature is optional: you can
+   > always unlock achievements by hand instead.
 2. In **Settings → Emulator folder**, pick the extracted folder.
 3. On a game's page: pull the achievement list first, then
    **Manage → Achievement tracking → Set up automatic tracking**.
