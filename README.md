@@ -20,10 +20,15 @@ store client.
 2. In this folder, run:
 
    ```bash
-   pip install -r requirements.txt
+   py -m pip install -r requirements.txt
    ```
 
-3. Start it with `python main.py`, or double-click `GameKeeper.bat` (no console window).
+3. Start it with `py main.py`, or double-click `GameKeeper.bat` (no console window).
+
+If `python` or `py` gives "The system cannot find the path specified", Windows is
+using its Microsoft Store placeholder instead of a real Python. Install Python
+from python.org, then turn off *App Installer (python.exe / python3.exe)* under
+Settings → *Manage app execution aliases*, and open a new terminal.
 
 Everything GameKeeper stores (library, covers, achievements, playtime,
 settings) goes in the `data/` folder next to `main.py`. Back up that folder
