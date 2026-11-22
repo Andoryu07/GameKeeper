@@ -307,6 +307,8 @@ class MainWindow(QMainWindow):
         p.toggle_favorite.connect(self.toggle_favorite)
         p.open_folder.connect(self.open_folder)
         p.achievement_toggled.connect(self.set_achievement)
+        p.achievements_set.connect(self.set_achievements)
+        p.achievements_excluded.connect(self.exclude_achievements)
         p.reset_achievements.connect(self.reset_achievements)
         p.review_saved.connect(self.save_review)
         p.notes_saved.connect(self.save_notes)
@@ -785,7 +787,37 @@ class MainWindow(QMainWindow):
             return
         achset.save()
         self._update_counts(g, achset)
-        self.toasts.show(ach.title, g.name, achset.icon_path(ach))
+        if not ach.excluded:     # still recorded, but no popup for achievements you excluded
+            self.toasts.show(ach.title, g.name, achset.icon_path(ach))
+        self._refresh_game(g)
+
+    def exclude_achievements(self, game_id: str, names: list, excluded: bool):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        achset = AchievementSet(game_id)
+        n = achset.set_excluded(names, excluded)
+        if not n:
+            return
+        achset.save()
+        self._update_counts(g, achset)
+        self._refresh_game(g)
+        self.statusBar().showMessage(
+            f"Excluded {n} achievement(s). Find them under the Excluded filter." if excluded
+            else f"Included {n} achievement(s) again.", 7000)
+
+    def set_achievements(self, game_id: str, names: list, unlocked: bool):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        achset = AchievementSet(game_id)
+        for name in names:
+            if unlocked:
+                achset.unlock(name, source="manual")
+            else:
+                achset.lock(name)
+        achset.save()
+        self._update_counts(g, achset)
         self._refresh_game(g)
 
     def set_achievement(self, game_id: str, api_name: str, unlocked: bool):

@@ -11,7 +11,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListView, QMenu,
-    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QStackedWidget, QStyle, QStyledItemDelegate,
+    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QStyle,
+    QStyledItemDelegate,
     QVBoxLayout, QWidget,
 )
 
@@ -192,8 +193,13 @@ class AchievementDelegate(QStyledItemDelegate):
         p.setRenderHint(QPainter.Antialiasing)
         r = option.rect.adjusted(0, 2, -6, -2)
         hovered = option.state & QStyle.State_MouseOver
+        selected = option.state & QStyle.State_Selected
         locked = not ach.unlocked
-        p.fillRect(r, QColor(style.PANEL_2 if hovered else style.PANEL))
+        p.fillRect(r, QColor(style.PANEL_2 if hovered or selected else style.PANEL))
+        if selected:
+            p.fillRect(QRect(r.x(), r.y(), 3, r.height()), QColor(style.ACCENT_2))
+        if ach.excluded:
+            p.setOpacity(0.55)
 
         # rarity bar along the bottom
         if ach.global_percent is not None:
@@ -220,6 +226,8 @@ class AchievementDelegate(QStyledItemDelegate):
         small.setPixelSize(12)
         p.setFont(small)
         lines: list[tuple[str, str]] = []
+        if ach.excluded:
+            lines.append(("excluded", style.MUTED))
         if ach.unlocked:
             lines.append(("Unlocked " + _date(ach.unlock_time, with_time=right_w > 150), style.TEXT))
             if ach.source in ("steam", "manual"):
@@ -260,7 +268,7 @@ class AchievementDelegate(QStyledItemDelegate):
 
 
 class AchievementList(QListView):
-    context = Signal(object, object)
+    context = Signal(object, object)       # [Achievement], global pos
 
     def __init__(self, page: "GamePage"):
         super().__init__(page)
@@ -269,8 +277,9 @@ class AchievementList(QListView):
         self.setUniformItemSizes(True)
         self.setVerticalScrollMode(QListView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(28)
-        self.setSelectionMode(QListView.NoSelection)
-        self.setFocusPolicy(Qt.NoFocus)
+        # Ctrl+click / Shift+click to pick several, then right-click
+        self.setSelectionMode(QListView.ExtendedSelection)
+        self.setFocusPolicy(Qt.ClickFocus)
         self.model_ = QStandardItemModel(self)
         self.setModel(self.model_)
         self.delegate = AchievementDelegate(page)
@@ -286,8 +295,16 @@ class AchievementList(QListView):
 
     def contextMenuEvent(self, e):
         idx = self.indexAt(e.pos())
-        if idx.isValid():
-            self.context.emit(idx.data(ROLE_ACH), e.globalPos())
+        if not idx.isValid():
+            return
+        sel = self.selectionModel()
+        if not sel.isSelected(idx):          # right-clicking outside the selection picks just that row
+            sel.select(idx, sel.SelectionFlag.ClearAndSelect)
+        chosen = [i.data(ROLE_ACH) for i in sorted(sel.selectedIndexes(), key=lambda i: i.row())]
+        self.context.emit(chosen, e.globalPos())
+
+    def shown(self) -> list[Achievement]:
+        return [self.model_.item(i).data(ROLE_ACH) for i in range(self.model_.rowCount())]
 
 
 # --------------------------------------------------------------------------- #
@@ -302,6 +319,8 @@ class GamePage(QWidget):
     open_folder = Signal(str)
     achievement_toggled = Signal(str, str, bool)   # game id, api name, unlocked
     reset_achievements = Signal(str, str)          # game id, "manual" | "all"
+    achievements_set = Signal(str, list, bool)     # game id, api names, unlocked
+    achievements_excluded = Signal(str, list, bool)  # game id, api names, excluded
     review_saved = Signal(str, int, str)           # game id, rating, review text
     notes_saved = Signal(str, str)
     set_artwork = Signal(str, str)                 # game id, "cover" | "hero" | "logo" | "icon"
@@ -424,12 +443,14 @@ class GamePage(QWidget):
         sbl.setContentsMargins(3, 3, 3, 3)
         sbl.setSpacing(2)
         self.seg = QButtonGroup(self)
-        for i, name in enumerate(("All", "Unlocked", "Locked")):
+        for i, name in enumerate(("All", "Unlocked", "Locked", "Excluded")):
             b = QPushButton(name)
+            b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)   # never squeeze the labels
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
             self.seg.addButton(b, i)
             sbl.addWidget(b)
+        self.seg.button(3).setToolTip("Achievements you've left out of this game's list and progress")
         self.seg.button(0).setChecked(True)
         self.seg.idClicked.connect(lambda _: self.refresh_achievements())
         tl.addWidget(seg_box)
@@ -569,8 +590,8 @@ class GamePage(QWidget):
         super().resizeEvent(e)
         w, h = self.width(), self.height()
         self.hero.setFixedHeight(int(min(300, max(170, h * 0.30))))
-        self.search.setVisible(w > 1000)
-        self.sort.setVisible(w > 780)
+        self.search.setVisible(w > 880)     # search matters more: it's how you exclude in bulk
+        self.sort.setVisible(w > 1180)
 
     # ------------------------------------------------------------------ #
     def show_game(self, game: Game):
@@ -686,7 +707,7 @@ class GamePage(QWidget):
         if not g or a is None:
             return
         a.load()
-        has = a.total > 0
+        has = len(a.items) > 0
         for w in (self.bar, self.tools, self.list):
             w.setVisible(has)
         self.reveal.setVisible(has and any(x.hidden for x in a.items))
@@ -705,23 +726,29 @@ class GamePage(QWidget):
                              "Pull achievements from Steam", "fetch")
             return
 
-        pct = 100 * a.unlocked_count // a.total
+        pct = 100 * a.unlocked_count // a.total if a.total else 100
+        excl = (f"&nbsp;&nbsp;\u00b7&nbsp;&nbsp;{a.excluded_count} excluded" if a.excluded_count else "")
         self.ach_title.setText(
             f"<span style='font-size:15px; color:{style.TEXT_BRIGHT}; font-weight:700'>Achievements</span>"
             f"<span style='color:{style.MUTED}'>&nbsp;&nbsp;You've unlocked "
-            f"<b style='color:{style.TEXT}'>{a.unlocked_count}</b>/{a.total} ({pct}%)</span>")
-        self.bar.setMaximum(a.total)
+            f"<b style='color:{style.TEXT}'>{a.unlocked_count}</b>/{a.total} ({pct}%){excl}</span>")
+        excl_btn = self.seg.button(3)
+        excl_btn.setVisible(a.excluded_count > 0)
+        excl_btn.setText(f"Excluded ({a.excluded_count})")
+        if a.excluded_count == 0 and self.seg.checkedId() == 3:
+            self.seg.button(0).setChecked(True)
+        self.bar.setMaximum(max(a.total, 1))
         self.bar.setValue(a.unlocked_count)
         if self.tracked:
             text = "Automatic unlocks: on (" + ", ".join(tracking.describe(g)) + ")."
             if self.manual:
                 text += f" {len(self.manual)} marked “unlock by hand” can't be detected; right-click them when earned."
         else:
-            text = "Automatic unlocks aren't set up for this game. Right-click an achievement to unlock it by hand."
+            text = "Automatic unlocks aren't set up for this game. Right-click an achievement to unlock it by hand, or to exclude ones you won't do."
         self._notice(text)
 
-        items = list(a.items)
         mode = self.seg.checkedId()
+        items = [x for x in a.items if x.excluded == (mode == 3)]
         if mode == 1:
             items = [x for x in items if x.unlocked]
         elif mode == 2:
@@ -760,13 +787,32 @@ class GamePage(QWidget):
         if self.game:
             {"fetch": self.fetch_data, "edit": self.edit}[self.notice_btn.property("action")].emit(self.game.id)
 
-    def _ach_menu(self, ach: Achievement, pos):
-        if not self.game:
+    def _ach_menu(self, chosen: list, pos):
+        if not self.game or not chosen:
             return
+        gid = self.game.id
+        names = [a.api_name for a in chosen]
+        n = len(chosen)
+        what = "achievement" if n == 1 else f"{n} achievements"
         m = QMenu(self)
-        act = m.addAction("Lock achievement" if ach.unlocked else "Unlock achievement")
-        if m.exec(pos) == act:
-            self.achievement_toggled.emit(self.game.id, ach.api_name, not ach.unlocked)
+        if any(not a.unlocked for a in chosen):
+            m.addAction(f"Unlock {what}", lambda: self.achievements_set.emit(gid, names, True))
+        if any(a.unlocked for a in chosen):
+            m.addAction(f"Lock {what}", lambda: self.achievements_set.emit(gid, names, False))
+        m.addSeparator()
+        if all(a.excluded for a in chosen):
+            m.addAction(f"Include {what} again", lambda: self.achievements_excluded.emit(gid, names, False))
+        else:
+            m.addAction(f"Exclude {what} from this game",
+                        lambda: self.achievements_excluded.emit(gid, names, True))
+        shown = self.list.shown()
+        if self.search.text().strip() and len(shown) > n and not any(a.excluded for a in shown):
+            m.addAction(f"Exclude all {len(shown)} matching \u201c{self.search.text().strip()}\u201d",
+                        lambda: self.achievements_excluded.emit(gid, [a.api_name for a in shown], True))
+        m.addSeparator()
+        hint = m.addAction("Tip: Ctrl+click or Shift+click to select several")
+        hint.setEnabled(False)
+        m.exec(pos)
 
     def _manage_menu(self):
         g = self.game

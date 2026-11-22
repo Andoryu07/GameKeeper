@@ -110,6 +110,7 @@ class Achievement:
     unlocked: bool = False
     unlock_time: int = 0            # unix timestamp
     source: str = ""                # "auto" (save files), "steam", "manual"
+    excluded: bool = False          # left out of the list and progress (e.g. multiplayer)
 
     @property
     def title(self) -> str:
@@ -143,11 +144,25 @@ class AchievementSet:
 
     @property
     def total(self) -> int:
-        return len(self.items)
+        """Achievements that count: everything except excluded ones."""
+        return sum(1 for a in self.items if not a.excluded)
 
     @property
     def unlocked_count(self) -> int:
-        return sum(1 for a in self.items if a.unlocked)
+        return sum(1 for a in self.items if a.unlocked and not a.excluded)
+
+    @property
+    def excluded_count(self) -> int:
+        return sum(1 for a in self.items if a.excluded)
+
+    def set_excluded(self, api_names, excluded: bool) -> int:
+        names = set(api_names)
+        n = 0
+        for a in self.items:
+            if a.api_name in names and a.excluded != excluded:
+                a.excluded = excluded
+                n += 1
+        return n
 
     def unlock(self, api_name: str, when: int | None = None, source: str = "manual") -> Achievement | None:
         """Mark one unlocked. Returns it if it was newly unlocked, else None."""
@@ -287,7 +302,8 @@ class Library:
                 continue
             ach = read_json(d / "achievements.json", {}).get("achievements", [])
             out.append({"game": _from_dict(Game, data["game"]), "archived_at": data.get("archived_at", 0),
-                        "unlocked": sum(1 for a in ach if a.get("unlocked")), "total": len(ach)})
+                        "unlocked": sum(1 for a in ach if a.get("unlocked") and not a.get("excluded")),
+                        "total": sum(1 for a in ach if not a.get("excluded"))})
         out.sort(key=lambda e: -e["archived_at"])
         return out
 

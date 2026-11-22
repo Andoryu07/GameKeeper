@@ -118,6 +118,19 @@ notes box.
   the last 30). Set the folder in **Settings → Backups**, ideally on another
   drive or a cloud-synced folder.
 
+## Excluding achievements
+
+For achievements you can't or won't do (multiplayer, online, removed DLC),
+right-click them and choose **Exclude from this game**. Excluded achievements
+leave the list and stop counting toward your progress, so 100% means 100% of
+what's left. They're kept in the background: the **Excluded** filter shows
+them, and **Include again** brings one back. Refreshing data from Steam keeps
+your exclusions.
+
+To exclude several at once, Ctrl+click or Shift+click to select them. Or type
+in the achievement search (e.g. *multiplayer*), right-click a result and
+choose **Exclude all matching**.
+
 ## Resetting achievements
 
 Under the ⚙ button on a game's page:

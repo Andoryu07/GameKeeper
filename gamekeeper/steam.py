@@ -207,11 +207,13 @@ def fetch_achievements(game: Game, settings: Settings, progress=None) -> Achieve
     if not items:
         raise SteamError("Steam has no achievements listed for this game.")
 
-    # carry over unlock state
+    # carry over unlock state and exclusions
     for a in items:
         prev = old.get(a.api_name)
         if prev and prev.unlocked:
             a.unlocked, a.unlock_time, a.source = True, prev.unlock_time, prev.source
+        if prev and prev.excluded:
+            a.excluded = True
 
     total = len(icon_jobs)
     for i, (url, dest) in enumerate(icon_jobs, 1):
