@@ -131,6 +131,14 @@ To exclude several at once, Ctrl+click or Shift+click to select them. Or type
 in the achievement search (e.g. *multiplayer*), right-click a result and
 choose **Exclude all matching**.
 
+### Deleting achievements permanently
+
+If you'd rather not see them at all, right-click and choose **Delete
+permanently** (also works on a selection, on everything matching a search, or
+on all excluded ones via ⚙). Deleted achievements vanish from the list and
+the counts, and refreshing from Steam won't bring them back. If you ever
+change your mind, **⚙ → Restore deleted achievements** downloads them again.
+
 ## Resetting achievements
 
 Under the ⚙ button on a game's page:

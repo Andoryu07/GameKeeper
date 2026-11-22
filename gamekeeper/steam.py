@@ -222,7 +222,7 @@ def fetch_achievements(game: Game, settings: Settings, progress=None) -> Achieve
         if progress:
             progress(i, total)
 
-    achset.items = items
+    achset.items = [a for a in items if a.api_name not in set(achset.deleted)]
     achset.fetched_at = int(time.time())
     achset.save()
     return achset

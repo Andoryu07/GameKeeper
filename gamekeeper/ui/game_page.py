@@ -321,6 +321,8 @@ class GamePage(QWidget):
     reset_achievements = Signal(str, str)          # game id, "manual" | "all"
     achievements_set = Signal(str, list, bool)     # game id, api names, unlocked
     achievements_excluded = Signal(str, list, bool)  # game id, api names, excluded
+    achievements_deleted = Signal(str, list)       # game id, api names
+    restore_deleted = Signal(str)
     review_saved = Signal(str, int, str)           # game id, rating, review text
     notes_saved = Signal(str, str)
     set_artwork = Signal(str, str)                 # game id, "cover" | "hero" | "logo" | "icon"
@@ -805,10 +807,20 @@ class GamePage(QWidget):
         else:
             m.addAction(f"Exclude {what} from this game",
                         lambda: self.achievements_excluded.emit(gid, names, True))
+        m.addAction(f"Delete {what} permanently...", lambda: self.achievements_deleted.emit(gid, names))
         shown = self.list.shown()
-        if self.search.text().strip() and len(shown) > n and not any(a.excluded for a in shown):
-            m.addAction(f"Exclude all {len(shown)} matching \u201c{self.search.text().strip()}\u201d",
-                        lambda: self.achievements_excluded.emit(gid, [a.api_name for a in shown], True))
+        q = self.search.text().strip()
+        if self.seg.checkedId() == 3 and len(shown) > n:
+            m.addAction(f"Delete all {len(shown)} excluded permanently...",
+                        lambda: self.achievements_deleted.emit(gid, [a.api_name for a in shown]))
+        elif q and len(shown) > n:
+            names_all = [a.api_name for a in shown]
+            m.addSeparator()
+            if not any(a.excluded for a in shown):
+                m.addAction(f"Exclude all {len(shown)} matching \u201c{q}\u201d",
+                            lambda: self.achievements_excluded.emit(gid, names_all, True))
+            m.addAction(f"Delete all {len(shown)} matching \u201c{q}\u201d permanently...",
+                        lambda: self.achievements_deleted.emit(gid, names_all))
         m.addSeparator()
         hint = m.addAction("Tip: Ctrl+click or Shift+click to select several")
         hint.setEnabled(False)
@@ -833,6 +845,13 @@ class GamePage(QWidget):
         a1.setEnabled(bool(g.appid))
         a2.setEnabled(bool(g.appid))
         m.addSeparator()
+        if self.achset and self.achset.excluded_count:
+            excl = [a.api_name for a in self.achset.items if a.excluded]
+            m.addAction(f"Delete the {len(excl)} excluded achievements permanently...",
+                        lambda: self.achievements_deleted.emit(g.id, excl))
+        if self.achset and self.achset.deleted:
+            m.addAction(f"Restore {len(self.achset.deleted)} deleted achievement(s)...",
+                        lambda: self.restore_deleted.emit(g.id))
         r1 = m.addAction("Lock achievements unlocked by hand...", lambda: self.reset_achievements.emit(g.id, "manual"))
         r2 = m.addAction("Lock all achievements...", lambda: self.reset_achievements.emit(g.id, "all"))
         has = bool(g.achievements_unlocked)

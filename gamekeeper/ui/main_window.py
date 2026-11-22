@@ -309,6 +309,8 @@ class MainWindow(QMainWindow):
         p.achievement_toggled.connect(self.set_achievement)
         p.achievements_set.connect(self.set_achievements)
         p.achievements_excluded.connect(self.exclude_achievements)
+        p.achievements_deleted.connect(self.delete_achievements)
+        p.restore_deleted.connect(self.restore_deleted)
         p.reset_achievements.connect(self.reset_achievements)
         p.review_saved.connect(self.save_review)
         p.notes_saved.connect(self.save_notes)
@@ -805,6 +807,39 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Excluded {n} achievement(s). Find them under the Excluded filter." if excluded
             else f"Included {n} achievement(s) again.", 7000)
+
+    def delete_achievements(self, game_id: str, names: list):
+        g = self.library.get(game_id)
+        if not g or not names:
+            return
+        n = len(names)
+        if QMessageBox.question(
+                self, "Delete permanently",
+                f"Permanently delete {n} achievement(s) from {g.name}?\n\n"
+                "They disappear from the list and your progress, and won't come back when "
+                "refreshing data from Steam.") != QMessageBox.Yes:
+            return
+        achset = AchievementSet(game_id)
+        achset.delete(names)
+        achset.save()
+        self._update_counts(g, achset)
+        self._refresh_game(g)
+        self.statusBar().showMessage(f"Deleted {n} achievement(s) from {g.name}.", 7000)
+
+    def restore_deleted(self, game_id: str):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        achset = AchievementSet(game_id)
+        n = len(achset.deleted)
+        if not n or QMessageBox.question(
+                self, "Restore deleted achievements",
+                f"Bring back the {n} achievement(s) you deleted from {g.name}?\n\n"
+                "They're downloaded from Steam again.") != QMessageBox.Yes:
+            return
+        achset.deleted = []
+        achset.save()
+        self.fetch_steam_data(g.id)
 
     def set_achievements(self, game_id: str, names: list, unlocked: bool):
         g = self.library.get(game_id)

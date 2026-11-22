@@ -132,12 +132,22 @@ class AchievementSet:
         data = read_json(self.path, {})
         self.fetched_at = data.get("fetched_at", 0)
         self.items = [_from_dict(Achievement, a) for a in data.get("achievements", [])]
+        # deleted permanently: kept as names only, so refreshing from Steam skips them
+        self.deleted: list[str] = data.get("deleted", [])
 
     def save(self) -> None:
         write_json(self.path, {
             "fetched_at": self.fetched_at,
             "achievements": [asdict(a) for a in self.items],
+            "deleted": self.deleted,
         })
+
+    def delete(self, api_names) -> int:
+        names = set(api_names)
+        before = len(self.items)
+        self.items = [a for a in self.items if a.api_name not in names]
+        self.deleted = sorted(set(self.deleted) | names)
+        return before - len(self.items)
 
     def by_name(self) -> dict[str, Achievement]:
         return {a.api_name: a for a in self.items}
