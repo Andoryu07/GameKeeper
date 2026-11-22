@@ -1,0 +1,167 @@
+/*
+ * GameKeeper theme - Qt Style Sheets (QSS), Qt's version of CSS.
+ *
+ * Colour variables: change a value here and the whole app follows,
+ * including the parts drawn in code (covers, achievement rows, popups).
+ * Restart GameKeeper to see changes.
+ */
+@bg: #1b2838;            /* page background */
+@bg-deep: #171a21;       /* top bar, sidebar */
+@panel: #202d3a;         /* cards, rows */
+@panel-hover: #2a3c50;
+@input: #2a3f5a;         /* text boxes, dropdowns */
+@border: #2c3e50;
+@text: #c6d4df;
+@text-bright: #ffffff;
+@muted: #8f98a0;
+@accent: #66c0f4;        /* links, highlights */
+@accent-strong: #1a9fff; /* selected items, progress */
+@play-top: #75b022;      /* play button gradient */
+@play-bottom: #588a1b;
+@gold: #e5b143;          /* achievements, ratings */
+@danger: #c84a4a;
+
+/* ---------------------------------------------------------------- base */
+QWidget {
+    background: @bg;
+    color: @text;
+    font-family: "Motiva Sans", "Segoe UI", "Arial";
+    font-size: 13px;
+}
+QToolTip { background: @bg-deep; color: @text; border: 1px solid @border; padding: 5px; }
+QLabel { background: transparent; }
+
+/* ---------------------------------------------------------------- top bar */
+#TopBar { background: @bg-deep; border-bottom: 1px solid #000; }
+#Wordmark { color: @text-bright; font-size: 16px; font-weight: 700; letter-spacing: 2px; }
+#NavLink {
+    background: transparent; border: none; color: @muted;
+    font-size: 14px; font-weight: 700; letter-spacing: 1px; padding: 14px 10px;
+}
+#NavLink:hover { color: @text-bright; }
+#NavLink[active="true"] { color: @accent; border-bottom: 3px solid @accent; }
+
+/* ---------------------------------------------------------------- sidebar */
+#Sidebar { background: @bg-deep; border-right: 1px solid #0b0d11; }
+#Sidebar QLineEdit { background: @panel; border: 1px solid @border; margin: 10px 10px 4px 10px; }
+#SectionLabel {
+    color: @muted; font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    padding: 12px 14px 4px 14px;
+}
+#SideList { background: transparent; border: none; outline: none; }
+#SideList::item { padding: 6px 12px; border: none; color: @text; }
+#SideList::item:hover { background: @panel; }
+#SideList::item:selected { background: @accent-strong; color: @text-bright; }
+#SideButton { background: transparent; border: none; color: @muted; text-align: left; padding: 8px 14px; }
+#SideButton:hover { color: @text-bright; background: @panel; }
+#AddCategory { background: transparent; border: none; color: @muted; font-size: 16px; padding: 0 12px; }
+#AddCategory:hover { color: @text-bright; }
+
+/* ---------------------------------------------------------------- inputs */
+QLineEdit, QSpinBox, QPlainTextEdit, QTextEdit, QComboBox {
+    background: @input; border: 1px solid transparent; border-radius: 3px;
+    padding: 6px 8px; color: @text; selection-background-color: @accent-strong;
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: @accent; }
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView { background: @bg-deep; border: 1px solid @border; selection-background-color: @accent-strong; outline: none; }
+
+/* ---------------------------------------------------------------- buttons */
+QPushButton {
+    background: #3d4450; color: @text; border: none; border-radius: 2px; padding: 7px 14px;
+}
+QPushButton:hover { background: #4b5463; color: @text-bright; }
+QPushButton:pressed { background: #353b45; }
+QPushButton:disabled { background: #2a2f37; color: #5c6570; }
+QPushButton#Primary {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #47bfff, stop:1 #1a44c2);
+    color: @text-bright;
+}
+QPushButton#Primary:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #66ccff, stop:1 #2a5ae0);
+}
+QPushButton#Danger { background: #4a2a2a; color: #f0b0b0; }
+QPushButton#Danger:hover { background: @danger; color: white; }
+QPushButton#Play {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 @play-top, stop:1 @play-bottom);
+    color: @text-bright; font-size: 16px; font-weight: 700; letter-spacing: 1px;
+    padding: 10px 30px; border-radius: 2px;
+}
+QPushButton#Play:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8ed629, stop:1 #6aa621);
+}
+QPushButton#Play:disabled { background: #3b5a1f; color: #c7e6a0; }
+QPushButton#Locate { background: @accent-strong; color: white; font-size: 15px; font-weight: 700; padding: 10px 26px; }
+QPushButton#IconButton { background: #3d4450; padding: 0; min-width: 40px; min-height: 40px; font-size: 16px; }
+QPushButton#IconButton:hover { background: #4b5463; }
+QPushButton#Link { background: transparent; color: @accent; padding: 2px 0; text-align: left; }
+QPushButton#Link:hover { color: @text-bright; }
+
+/* ---------------------------------------------------------------- game page */
+#PlayBar { background: rgba(23, 26, 33, 0.92); }
+#Tabs { background: transparent; }
+#Tab {
+    background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    color: @muted; font-weight: 700; letter-spacing: 1px; padding: 10px 4px; margin-right: 18px;
+}
+#Tab:hover { color: @text-bright; background: transparent; }
+#Tab:checked { color: @text-bright; border-bottom: 2px solid @accent; }
+#Card { background: @panel; border-radius: 3px; }
+#CardTitle { color: @muted; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+#Notice { color: @muted; }
+#Segmented { background: @bg-deep; border-radius: 3px; }
+#Segmented QPushButton { background: transparent; color: @muted; padding: 5px 12px; border-radius: 2px; }
+#Segmented QPushButton:hover { color: @text-bright; }
+#Segmented QPushButton:checked { background: @input; color: @text-bright; }
+
+QProgressBar { background: #0e141b; border: none; border-radius: 2px; height: 6px; }
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 @accent-strong, stop:1 @accent);
+    border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------- lists, menus */
+QListView#Grid, QListView#AchList { background: transparent; border: none; outline: none; }
+QListWidget { background: @bg-deep; border: 1px solid @border; outline: none; }
+QListWidget::item { padding: 6px; }
+QListWidget::item:selected { background: @accent-strong; color: white; }
+
+QMenu { background: #3d4450; border: none; padding: 4px 0; }
+QMenu::item { padding: 7px 26px 7px 16px; color: @text; }
+QMenu::item:selected { background: #dcdedf; color: #171a21; }
+QMenu::item:disabled { color: #7b8592; }
+QMenu::separator { height: 1px; background: #525c69; margin: 4px 0; }
+
+QScrollArea { border: none; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #3d4450; border-radius: 0; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #4b5463; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+QScrollBar:horizontal { height: 0; }
+
+QSlider { background: transparent; }
+QSlider::groove:horizontal { height: 3px; background: @input; }
+QSlider::sub-page:horizontal { background: @accent; }
+QSlider::handle:horizontal { background: @text; width: 12px; height: 12px; margin: -5px 0; border-radius: 6px; }
+QSlider::handle:horizontal:hover { background: white; }
+
+QCheckBox { background: transparent; }
+QCheckBox::indicator, QListWidget::indicator {
+    width: 14px; height: 14px; border: 1px solid #4b5463; border-radius: 2px; background: @input;
+}
+QCheckBox::indicator:checked, QListWidget::indicator:checked { background: @accent-strong; border-color: @accent-strong; }
+QCheckBox::indicator:hover, QListWidget::indicator:hover { border-color: @accent; }
+
+/* ---------------------------------------------------------------- dialogs */
+QDialog { background: @bg; }
+QGroupBox {
+    border: none; border-top: 1px solid @border; margin-top: 18px; padding: 14px 4px 4px 4px;
+    font-weight: 700;
+}
+QGroupBox::title {
+    subcontrol-origin: margin; left: 0; padding: 0 6px 0 0; color: @muted;
+    font-size: 11px; letter-spacing: 1px;
+}
+QStatusBar { background: @bg-deep; color: @muted; border-top: 1px solid #0b0d11; }
+QStatusBar::item { border: none; }

@@ -58,8 +58,8 @@ class _Toast(QWidget):
         card.setObjectName("ToastCard")
         card.setGeometry(6, 6, WIDTH - 12, HEIGHT - 12)
         card.setStyleSheet(f"""
-            #ToastCard {{ background: {style.PANEL_2}; border: 1px solid {style.BORDER};
-                          border-left: 4px solid {style.GOLD}; border-radius: 10px; }}
+            #ToastCard {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a3f5a, stop:1 {style.BG_DEEP});
+                          border: 1px solid #3d5a78; border-radius: 3px; }}
             QLabel {{ background: transparent; }}
         """)
         shadow = QGraphicsDropShadowEffect(card)
@@ -80,7 +80,7 @@ class _Toast(QWidget):
         head = QLabel("ACHIEVEMENT UNLOCKED")
         head.setStyleSheet(f"color: {style.GOLD}; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
         name = QLabel(title)
-        name.setStyleSheet(f"color: {style.TEXT}; font-size: 14px; font-weight: 600;")
+        name.setStyleSheet(f"color: {style.TEXT_BRIGHT}; font-size: 14px; font-weight: 600;")
         sub = QLabel(subtitle)
         sub.setStyleSheet(f"color: {style.MUTED}; font-size: 11px;")
         for w in (name, sub):
@@ -129,7 +129,7 @@ def _rounded(pm: QPixmap, size: int) -> QPixmap:
     p = QPainter(out)
     p.setRenderHint(QPainter.Antialiasing)
     path = QPainterPath()
-    path.addRoundedRect(0, 0, size, size, 8, 8)
+    path.addRoundedRect(0, 0, size, size, 2, 2)
     p.setClipPath(path)
     p.drawPixmap(0, 0, pm)
     p.end()
@@ -143,7 +143,7 @@ def _trophy(size: int) -> QPixmap:
     p.setRenderHint(QPainter.Antialiasing)
     p.setBrush(QColor(style.PANEL))
     p.setPen(Qt.NoPen)
-    p.drawRoundedRect(0, 0, size, size, 8, 8)
+    p.drawRoundedRect(0, 0, size, size, 2, 2)
     p.setPen(QColor(style.GOLD))
     f = p.font()
     f.setPixelSize(int(size * 0.55))

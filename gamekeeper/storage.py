@@ -14,6 +14,9 @@ Layout::
         hero.jpg                wide banner for the detail page
         achievements.json       schema + unlock state
         icons/                  achievement icons
+      archive/<game id>/        games removed from the library (restorable)
+        game.json               the library entry: playtime, rating, review...
+      backups/                  daily zip backups of the records above
 """
 from __future__ import annotations
 
@@ -31,6 +34,7 @@ DATA_DIR = Path(os.environ.get("GAMEKEEPER_DATA", ROOT_DIR / "data"))
 GAMES_DIR = DATA_DIR / "games"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 LIBRARY_FILE = DATA_DIR / "library.json"
+ARCHIVE_DIR = DATA_DIR / "archive"
 
 
 def ensure_dirs() -> None:
@@ -75,6 +79,8 @@ class Settings:
     language: str = "english"
     toast_sound: bool = True
     toast_seconds: int = 6
+    backup_dir: str = ""            # empty = data/backups
+    last_backup: int = 0
     shortcut_offered: bool = False
     window_geometry: str = ""       # saved window size/position
     cover_size: int = 160
@@ -187,6 +193,9 @@ class Game:
     achievements_unlocked: int = 0
     run_as_admin: bool = False
     notes: str = ""
+    rating: int = 0                 # 1-10, 0 = not rated
+    review: str = ""
+    review_updated: int = 0
 
     @property
     def folder(self) -> Path:
@@ -235,11 +244,56 @@ class Library:
         game.folder.mkdir(parents=True, exist_ok=True)
         self.save()
 
-    def remove(self, game: Game, delete_data: bool = True) -> None:
+    def remove(self, game: Game) -> Path:
+        """Take a game out of the library, keeping all its records in the archive."""
+        dest = ARCHIVE_DIR / game.id
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        if game.folder.exists():
+            shutil.move(str(game.folder), str(dest))
+        dest.mkdir(parents=True, exist_ok=True)
+        write_json(dest / "game.json", {"archived_at": int(time.time()), "game": asdict(game)})
         self.games = [g for g in self.games if g.id != game.id]
-        if delete_data:
-            shutil.rmtree(game.folder, ignore_errors=True)
         self.save()
+        return dest
+
+    # archive ---------------------------------------------------------------
+    @staticmethod
+    def archived() -> list[dict]:
+        """Removed games: [{'game': Game, 'archived_at': ts, 'unlocked': n, 'total': n}]."""
+        out = []
+        if not ARCHIVE_DIR.is_dir():
+            return out
+        for d in ARCHIVE_DIR.iterdir():
+            data = read_json(d / "game.json", None)
+            if not data or "game" not in data:
+                continue
+            ach = read_json(d / "achievements.json", {}).get("achievements", [])
+            out.append({"game": _from_dict(Game, data["game"]), "archived_at": data.get("archived_at", 0),
+                        "unlocked": sum(1 for a in ach if a.get("unlocked")), "total": len(ach)})
+        out.sort(key=lambda e: -e["archived_at"])
+        return out
+
+    def restore(self, game_id: str) -> Game | None:
+        src = ARCHIVE_DIR / game_id
+        data = read_json(src / "game.json", None)
+        if not data:
+            return None
+        game = _from_dict(Game, data["game"])
+        if self.get(game.id):            # already back in the library
+            return None
+        (src / "game.json").unlink(missing_ok=True)
+        if game.folder.exists():
+            shutil.rmtree(game.folder)
+        shutil.move(str(src), str(game.folder))
+        self.games.append(game)
+        self.save()
+        return game
+
+    @staticmethod
+    def delete_archived(game_id: str) -> None:
+        shutil.rmtree(ARCHIVE_DIR / game_id, ignore_errors=True)
 
     # categories ------------------------------------------------------------
     def add_category(self, name: str) -> bool:

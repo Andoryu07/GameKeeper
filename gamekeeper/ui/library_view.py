@@ -5,7 +5,7 @@ import hashlib
 
 from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import (
-    QColor, QFont, QImageReader, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap, QStandardItem,
+    QColor, QFont, QImageReader, QLinearGradient, QPainter, QPainterPath, QPixmap, QStandardItem,
     QStandardItemModel,
 )
 from PySide6.QtWidgets import QListView, QStyle, QStyledItemDelegate
@@ -57,15 +57,15 @@ def _fit(pm: QPixmap, w: int, h: int) -> QPixmap:
 
 def placeholder(name: str, w: int, h: int) -> QPixmap:
     """Generated cover for games without artwork."""
-    hue = int(hashlib.md5(name.encode()).hexdigest()[:4], 16) % 360
+    hue = 190 + int(hashlib.md5(name.encode()).hexdigest()[:4], 16) % 40   # stays in muted blues
     pm = QPixmap(w, h)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    g = QLinearGradient(0, 0, w, h)
-    g.setColorAt(0, QColor.fromHsl(hue, 90, 70))
-    g.setColorAt(1, QColor.fromHsl((hue + 40) % 360, 80, 30))
+    g = QLinearGradient(0, 0, 0, h)
+    g.setColorAt(0, QColor.fromHsl(hue, 45, 62))
+    g.setColorAt(1, QColor.fromHsl(hue, 40, 24))
     p.fillRect(0, 0, w, h, g)
-    p.setPen(QColor(255, 255, 255, 230))
+    p.setPen(QColor(255, 255, 255, 220))
     f = QFont()
     f.setPixelSize(max(14, w // 9))
     f.setBold(True)
@@ -94,67 +94,78 @@ class GameDelegate(QStyledItemDelegate):
         x = r.x() + (r.width() - COVER_W) // 2
         cover = QRect(x, r.y() + 6, COVER_W, COVER_H)
         hovered = option.state & QStyle.State_MouseOver
-        selected = option.state & QStyle.State_Selected
+        running = game.id in self.view.running
+        missing = getattr(game, "missing", False)
+
+        if hovered:   # soft glow like Steam's hovered capsules
+            p.setPen(Qt.NoPen)
+            for i, a in ((6, 18), (3, 40)):
+                p.setBrush(QColor(102, 192, 244, a))
+                p.drawRoundedRect(cover.adjusted(-i, -i, i, i), 4 + i, 4 + i)
 
         path = QPainterPath()
-        path.addRoundedRect(cover, 8, 8)
+        path.addRoundedRect(cover, 3, 3)
         p.setClipPath(path)
         p.drawPixmap(cover, cover_pixmap(game, COVER_W, COVER_H))
-        if game.id in self.view.running:
-            p.fillRect(QRect(cover.x(), cover.y(), COVER_W, 26), QColor(63, 191, 127, 225))
+        if missing:
+            p.fillRect(cover, QColor(15, 18, 24, 170))
+        if hovered:
+            p.fillRect(cover, QColor(255, 255, 255, 18))
+
+        # status strip along the top
+        strip = None
+        if running:
+            strip = ("RUNNING", QColor(style.GREEN))
+        elif missing:
+            strip = ("FILES NOT FOUND", QColor(110, 30, 30, 235))
+        if strip:
+            band = QRect(cover.x(), cover.y(), COVER_W, 22)
+            p.fillRect(band, strip[1])
             f = p.font()
-            f.setPixelSize(11)
+            f.setPixelSize(10)
             f.setBold(True)
+            f.setLetterSpacing(QFont.AbsoluteSpacing, 1)
             p.setFont(f)
             p.setPen(QColor("white"))
-            p.drawText(QRect(cover.x(), cover.y(), COVER_W, 26), Qt.AlignCenter, "●  PLAYING")
-        if hovered:
-            p.fillRect(cover, QColor(255, 255, 255, 22))
-        p.setClipping(False)
-        if selected or hovered:
-            p.setPen(QPen(QColor(style.ACCENT if selected else "#5d6b82"), 2))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(cover.adjusted(-1, -1, 1, 1), 9, 9)
+            p.drawText(band, Qt.AlignCenter, strip[0])
 
-        # achievement badge
+        # achievement progress along the bottom of the cover
         if game.achievements_total:
-            done = game.achievements_unlocked == game.achievements_total
-            txt = "★ 100%" if done else f"{game.achievements_unlocked}/{game.achievements_total}"
-            f = p.font()
-            f.setPixelSize(11)
-            f.setBold(True)
-            p.setFont(f)
-            tw = p.fontMetrics().horizontalAdvance(txt) + 12
-            badge = QRect(cover.right() - tw - 6, cover.bottom() - 26, tw, 20)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(style.GOLD) if done else QColor(0, 0, 0, 170))
-            p.drawRoundedRect(badge, 10, 10)
-            p.setPen(QColor("#1a1a1a") if done else QColor("white"))
-            p.drawText(badge, Qt.AlignCenter, txt)
+            frac = game.achievements_unlocked / game.achievements_total
+            bar = QRect(cover.x(), cover.bottom() - 4, COVER_W, 5)
+            p.fillRect(bar, QColor(0, 0, 0, 170))
+            p.fillRect(QRect(bar.x(), bar.y(), int(COVER_W * frac), bar.height()),
+                       QColor(style.GOLD if frac >= 1 else style.ACCENT_2))
+        p.setClipping(False)
 
         if game.favorite:
             f = p.font()
-            f.setPixelSize(16)
+            f.setPixelSize(15)
             p.setFont(f)
+            top = cover.y() + (24 if strip else 4)
+            p.setPen(QColor(0, 0, 0, 160))
+            p.drawText(QRect(cover.x() + 7, top + 1, 22, 22), Qt.AlignCenter, "\u2605")
             p.setPen(QColor(style.GOLD))
-            top = cover.y() + (30 if game.id in self.view.running else 6)
-            p.drawText(QRect(cover.x() + 8, top, 24, 24), Qt.AlignCenter, "★")
+            p.drawText(QRect(cover.x() + 6, top, 22, 22), Qt.AlignCenter, "\u2605")
 
-        # title + playtime
+        # title + details line
         f = p.font()
         f.setPixelSize(13)
-        f.setBold(True)
+        f.setBold(False)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, 0)
         p.setFont(f)
-        p.setPen(QColor(style.TEXT))
+        p.setPen(QColor(style.TEXT_BRIGHT if hovered else style.TEXT))
         title_r = QRect(cover.x(), cover.bottom() + 8, COVER_W, 18)
         p.drawText(title_r, Qt.AlignLeft | Qt.AlignVCenter,
                    p.fontMetrics().elidedText(game.name, Qt.ElideRight, COVER_W))
-        f.setBold(False)
         f.setPixelSize(11)
         p.setFont(f)
+        line = QRect(cover.x(), title_r.bottom() + 2, COVER_W, 16)
         p.setPen(QColor(style.MUTED))
-        p.drawText(QRect(cover.x(), title_r.bottom() + 2, COVER_W, 16), Qt.AlignLeft | Qt.AlignVCenter,
-                   format_playtime(game.total_playtime))
+        p.drawText(line, Qt.AlignLeft | Qt.AlignVCenter, format_playtime(game.total_playtime))
+        if game.rating:
+            p.setPen(QColor(style.GOLD))
+            p.drawText(line, Qt.AlignRight | Qt.AlignVCenter, f"\u2605 {game.rating}/10")
         p.restore()
 
 

@@ -10,10 +10,25 @@ from PySide6.QtWidgets import (
     QSpinBox, QVBoxLayout, QWidget,
 )
 
-from .. import scanner, shortcut, steam
+from .. import backup, scanner, shortcut, steam
 from ..storage import Game, Library, Settings
 from . import icon, style
 from .workers import run_async
+
+
+def open_path(path) -> None:
+    """Open a folder in Explorer (or the platform's file manager)."""
+    import os
+    import subprocess
+    import sys
+    path = str(path)
+    os.makedirs(path, exist_ok=True)
+    if sys.platform == "win32":
+        os.startfile(path)  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
 
 
 def _hint(text: str) -> QLabel:
@@ -109,7 +124,7 @@ class CategoryPicker(QListWidget):
             it.setCheckState(Qt.Checked if c in selected else Qt.Unchecked)
             self.addItem(it)
         if not library.categories:
-            it = QListWidgetItem("No categories yet - create them in the sidebar")
+            it = QListWidgetItem("No collections yet - create them with + in the sidebar")
             it.setFlags(Qt.NoItemFlags)
             self.addItem(it)
 
@@ -164,7 +179,7 @@ class AddGameDialog(QDialog):
         self.admin = QCheckBox("Run as administrator")
         self.admin.setToolTip("Windows will ask for permission each time the game starts.")
         form.addRow("", self.admin)
-        form.addRow("Categories", self.cats)
+        form.addRow("Collections", self.cats)
         lay.addWidget(box2)
 
         # 3. steam
@@ -273,7 +288,7 @@ class EditGameDialog(QDialog):
         self.admin.setToolTip("Windows will ask for permission each time the game starts.")
         form.addRow("", self.admin)
         form.addRow("Start in", self.workdir)
-        form.addRow("Categories", self.cats)
+        form.addRow("Collections", self.cats)
         form.addRow("Notes", self.notes)
         lay.addLayout(form)
 
@@ -316,7 +331,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: Settings, parent=None, test_popup=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.resize(560, 620)
+        self.resize(580, 780)
         self.settings = settings
         lay = QVBoxLayout(self)
 
@@ -353,6 +368,30 @@ class SettingsDialog(QDialog):
             f2.addRow("", test)
         lay.addWidget(box2)
 
+        boxb = QGroupBox("Backups")
+        fb = QFormLayout(boxb)
+        brow = QHBoxLayout()
+        self.backup_dir = QLineEdit(settings.backup_dir)
+        self.backup_dir.setPlaceholderText(str(backup.backup_dir(Settings())))
+        bpick = QPushButton("Browse...")
+        bpick.clicked.connect(self._pick_backup_dir)
+        brow.addWidget(self.backup_dir, 1)
+        brow.addWidget(bpick)
+        fb.addRow("Folder", brow)
+        brow2 = QHBoxLayout()
+        now = QPushButton("Back up now")
+        now.clicked.connect(self._backup_now)
+        openb = QPushButton("Open folder")
+        openb.clicked.connect(lambda: open_path(backup.backup_dir(self._current_backup_settings())))
+        brow2.addWidget(now)
+        brow2.addWidget(openb)
+        brow2.addStretch()
+        fb.addRow("", brow2)
+        fb.addRow("", _hint("GameKeeper backs up playtime, achievements, ratings and reviews once a day "
+                            "and keeps the last 30. Pick a folder on another drive or a cloud-synced "
+                            "folder for extra safety."))
+        lay.addWidget(boxb)
+
         box3 = QGroupBox("Shortcuts")
         b3 = QVBoxLayout(box3)
         row = QHBoxLayout()
@@ -374,6 +413,25 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
 
+    def _current_backup_settings(self) -> Settings:
+        s = Settings(**{**self.settings.__dict__})
+        s.backup_dir = self.backup_dir.text().strip()
+        return s
+
+    def _pick_backup_dir(self):
+        d = QFileDialog.getExistingDirectory(self, "Backup folder", self.backup_dir.text())
+        if d:
+            self.backup_dir.setText(d)
+
+    def _backup_now(self):
+        self.settings.backup_dir = self.backup_dir.text().strip()
+        try:
+            path = backup.make_backup(self.settings)
+        except OSError as e:
+            QMessageBox.warning(self, "Backup", f"Backup failed: {e}")
+            return
+        QMessageBox.information(self, "Backup", f"Saved:\n{path}")
+
     def _make_shortcut(self, where: str):
         try:
             path = shortcut.create(where, icon.ico_file())
@@ -389,5 +447,86 @@ class SettingsDialog(QDialog):
         s.language = self.lang.text().strip() or "english"
         s.toast_sound = self.sound.isChecked()
         s.toast_seconds = self.secs.value()
+        s.backup_dir = self.backup_dir.text().strip()
         s.save()
         super().accept()
+
+
+# --------------------------------------------------------------------------- #
+class ArchiveDialog(QDialog):
+    """Games removed from the library, with everything they had recorded."""
+
+    def __init__(self, library: Library, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Archived games")
+        self.resize(560, 440)
+        self.library = library
+        self.restored: list[str] = []
+        lay = QVBoxLayout(self)
+        lay.addWidget(_hint("Games you remove from the library are kept here with their playtime, "
+                            "achievements, rating and review. Restore one to put it back exactly as it was."))
+        self.list = QListWidget()
+        self.list.setObjectName("ArchiveList")
+        lay.addWidget(self.list, 1)
+        row = QHBoxLayout()
+        self.restore_btn = QPushButton("Restore to library")
+        self.restore_btn.setObjectName("Primary")
+        self.restore_btn.clicked.connect(self.restore)
+        self.delete_btn = QPushButton("Delete permanently")
+        self.delete_btn.setObjectName("Danger")
+        self.delete_btn.clicked.connect(self.delete)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        row.addWidget(self.restore_btn)
+        row.addWidget(self.delete_btn)
+        row.addStretch()
+        row.addWidget(close)
+        lay.addLayout(row)
+        self.reload()
+
+    def reload(self):
+        from ..runner import format_playtime
+        import datetime as dt
+        self.list.clear()
+        for e in Library.archived():
+            g = e["game"]
+            when = dt.datetime.fromtimestamp(e["archived_at"]).strftime("%d %b %Y") if e["archived_at"] else "?"
+            parts = [format_playtime(g.total_playtime)]
+            if e["total"]:
+                parts.append(f"{e['unlocked']}/{e['total']} achievements")
+            if g.rating:
+                parts.append(f"rated {g.rating}/10")
+            parts.append(f"removed {when}")
+            it = QListWidgetItem(g.name + "\n" + "  \u00b7  ".join(parts))
+            it.setData(Qt.UserRole, g.id)
+            self.list.addItem(it)
+        empty = self.list.count() == 0
+        if empty:
+            it = QListWidgetItem("No archived games.")
+            it.setFlags(Qt.NoItemFlags)
+            self.list.addItem(it)
+        else:
+            self.list.setCurrentRow(0)
+        self.restore_btn.setEnabled(not empty)
+        self.delete_btn.setEnabled(not empty)
+
+    def _selected(self) -> str | None:
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it else None
+
+    def restore(self):
+        gid = self._selected()
+        if gid and self.library.restore(gid):
+            self.restored.append(gid)
+        self.reload()
+
+    def delete(self):
+        gid = self._selected()
+        if not gid:
+            return
+        name = self.list.currentItem().text().split("\n")[0]
+        if QMessageBox.question(self, "Delete permanently",
+                                f"Permanently delete everything recorded for '{name}'?\n\n"
+                                "Older copies stay in your backups.") == QMessageBox.Yes:
+            Library.delete_archived(gid)
+            self.reload()

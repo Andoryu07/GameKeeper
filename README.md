@@ -6,8 +6,9 @@ store client.
 
 - **Library**: add games one at a time by picking their folder. GameKeeper
   finds the right `.exe` and skips installers, crash handlers and redistributables.
-- **Categories**: make your own lists (Retro, Emulated, Backlog...). A game
+- **Collections**: make your own lists (Retro, Emulated, Backlog...). A game
   can be in several. Also built in: Favorites, Recently played and Uncategorized.
+- **Ratings and reviews**: rate games 1-10 stars and write your thoughts.
 - **Playtime**: tracked like Steam does, per game, saved every minute so a
   crash doesn't lose it. Your existing Steam playtime can be imported.
 - **Achievements**: pulled from Steam for a game when you choose to (e.g. when
@@ -89,6 +90,40 @@ The popup appears in the bottom-right corner over windowed and borderless
 games. Exclusive fullscreen games draw over everything, so switch those to
 borderless to see it. Sound and duration are in Settings.
 
+## Ratings and reviews
+
+On a game's page, open the **REVIEW** tab to rate it from 1 to 10 stars and
+write a review. Your rating shows on the game's page and under its cover, and
+the library can be sorted by it. The **DETAILS** tab has the game's info and a
+notes box.
+
+## Your records are kept safe
+
+- **Removing a game** moves it to the **Archive** (top bar) with its playtime,
+  achievements, rating and review. Restore it any time, exactly as it was.
+- **If a game's files disappear**, it stays in your library, greyed out and
+  marked *Files not found*, with nothing lost. Use **Locate game** to point
+  GameKeeper to its new location.
+- **Daily backups**: once a day GameKeeper zips up all your records (keeping
+  the last 30). Set the folder in **Settings → Backups**, ideally on another
+  drive or a cloud-synced folder.
+
+## Resetting achievements
+
+Under the ⚙ button on a game's page:
+
+- **Lock achievements unlocked by hand** locks only the ones you unlocked
+  yourself, and keeps automatic unlocks and Steam imports.
+- **Lock all achievements** starts fresh. Ones the game's saves still show as
+  earned unlock again at the next check.
+
+## Changing the look
+
+All styling lives in `gamekeeper/ui/theme.qss`, written in Qt Style Sheets
+(Qt's version of CSS). The colour variables at the top (`@bg`, `@accent`,
+`@gold`...) are used everywhere, including the parts drawn in code, so
+changing one there recolours the whole app. Restart GameKeeper to see changes.
+
 ## Keyboard shortcuts
 
 | Keys | Action |
@@ -111,5 +146,7 @@ gamekeeper/
   runner.py             launching games, playtime, watching for unlocks
   winlaunch.py          starting games, including as administrator
   shortcut.py           creating desktop / Start menu shortcuts
+  backup.py             daily zip backups of your records
   ui/                   the Qt interface
+  ui/theme.qss          all colours and styling (Qt's CSS)
 ```

@@ -7,25 +7,26 @@ import sys
 import time
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox, QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QStackedWidget, QStyle,
     QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
-from .. import shortcut, steam, tracking
+from .. import backup, shortcut, steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
-from .dialogs import AddGameDialog, EditGameDialog, SettingsDialog
+from .dialogs import AddGameDialog, ArchiveDialog, EditGameDialog, SettingsDialog
 from .game_page import GamePage
-from .library_view import LibraryView
+from .icon import app_pixmap
+from .library_view import LibraryView, cover_pixmap
 from .toast import ToastManager
 from .workers import run_async
 
 ALL, FAVORITES, RECENT, UNCATEGORIZED = "__all__", "__fav__", "__recent__", "__none__"
-SORTS = ["Name", "Recently played", "Most played", "Recently added", "Achievement progress"]
+SORTS = ["Name", "Recently played", "Most played", "Recently added", "Achievement progress", "Your rating"]
 ROLE_COUNT = Qt.UserRole + 2
 
 
@@ -63,19 +64,21 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         self.setCentralWidget(root)
-        lay = QHBoxLayout(root)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-        lay.addWidget(self._build_sidebar())
-
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._build_topbar())
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(self._build_sidebar())
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_library_page())
         self.page = GamePage()
         self._wire_game_page()
         self.stack.addWidget(self.page)
-        lay.addWidget(self.stack, 1)
-
-        self.statusBar().setStyleSheet(f"color: {style.MUTED}; background: {style.PANEL}; border-top: 1px solid {style.BORDER};")
+        body.addWidget(self.stack, 1)
+        outer.addLayout(body, 1)
         self.page.session_start_fn = lambda gid: self.sessions[gid].started_at if gid in self.sessions else 0.0
         self.grid.set_cover_size(self.settings.cover_size)
         self.cover_slider.setValue(self.settings.cover_size)
@@ -84,6 +87,8 @@ class MainWindow(QMainWindow):
         self._shortcuts()
         if self.settings.window_geometry:
             self.restoreGeometry(QByteArray.fromBase64(self.settings.window_geometry.encode()))
+        settings = self.settings
+        run_async(lambda: backup.backup_if_due(settings))
         if shortcut.supported() and not self.settings.shortcut_offered:
             QTimer.singleShot(800, self._offer_shortcut)
 
@@ -141,93 +146,126 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         w = self.width()
-        self.sidebar.setFixedWidth(230 if w > 1000 else 190)
-        self.search.setFixedWidth(220 if w > 1150 else 150)
-        self.sort.setVisible(w > 960)
-        self.cover_slider.setVisible(w > 1060)
-        self.size_icon.setVisible(w > 1060)
+        self.sidebar.setFixedWidth(260 if w > 1100 else 210)
+        self.sort.setVisible(w > 900)
+        self.cover_slider.setVisible(w > 1000)
+        self.size_icon.setVisible(w > 1000)
 
     # ------------------------------------------------------------------ #
     # layout
     # ------------------------------------------------------------------ #
+    def _build_topbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("TopBar")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(16, 0, 16, 0)
+        h.setSpacing(6)
+        logo = QLabel()
+        logo.setPixmap(app_pixmap(26))
+        h.addWidget(logo)
+        mark = QLabel("GAMEKEEPER")
+        mark.setObjectName("Wordmark")
+        h.addWidget(mark)
+        h.addSpacing(26)
+        self.nav: dict[str, QPushButton] = {}
+        for key, label, slot in (("library", "LIBRARY", self.show_library),
+                                 ("archive", "ARCHIVE", self.open_archive),
+                                 ("settings", "SETTINGS", self.open_settings)):
+            b = QPushButton(label)
+            b.setObjectName("NavLink")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(slot)
+            self.nav[key] = b
+            h.addWidget(b)
+        self.nav["library"].setProperty("active", True)
+        h.addStretch()
+        add = QPushButton("+  ADD GAME")
+        add.setObjectName("Primary")
+        add.setToolTip("Add a game (Ctrl+N)")
+        add.setCursor(Qt.PointingHandCursor)
+        add.clicked.connect(self.add_game)
+        h.addWidget(add)
+        return bar
+
     def _build_sidebar(self) -> QWidget:
         side = QWidget()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(230)
+        side.setFixedWidth(260)
         self.sidebar = side
         v = QVBoxLayout(side)
-        v.setContentsMargins(0, 0, 0, 8)
+        v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
-        brand = QLabel("\U0001F3AE  GameKeeper")
-        brand.setObjectName("Brand")
-        v.addWidget(brand)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search  (Ctrl+F)")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.refresh_grid)
+        v.addWidget(self.search)
 
-        lbl = QLabel("LIBRARY")
-        lbl.setObjectName("SectionLabel")
-        v.addWidget(lbl)
         self.views = QListWidget()
-        self.views.setObjectName("Categories")
-        self.views.setFixedHeight(4 * 36 + 6)
+        self.views.setObjectName("SideList")
         self.views.setItemDelegate(SidebarDelegate(self.views))
         self.views.setCursor(Qt.PointingHandCursor)
+        self.views.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.views.itemClicked.connect(lambda it: self._select_filter(it.data(Qt.UserRole), self.views))
         v.addWidget(self.views)
 
         row = QHBoxLayout()
-        lbl2 = QLabel("CATEGORIES")
+        row.setSpacing(0)
+        lbl2 = QLabel("COLLECTIONS")
         lbl2.setObjectName("SectionLabel")
         row.addWidget(lbl2)
+        row.addStretch()
         add = QPushButton("+")
-        add.setToolTip("New category")
-        add.setFixedSize(26, 22)
-        add.setStyleSheet(f"padding: 0; font-size: 15px; color: {style.MUTED}; background: transparent; border: none;")
+        add.setObjectName("AddCategory")
+        add.setToolTip("New collection")
+        add.setCursor(Qt.PointingHandCursor)
         add.clicked.connect(self.new_category)
         row.addWidget(add)
-        row.addSpacing(10)
         v.addLayout(row)
         self.cats = QListWidget()
-        self.cats.setObjectName("Categories")
+        self.cats.setObjectName("SideList")
         self.cats.setItemDelegate(SidebarDelegate(self.cats))
         self.cats.setCursor(Qt.PointingHandCursor)
+        self.cats.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.cats.setContextMenuPolicy(Qt.CustomContextMenu)
         self.cats.customContextMenuRequested.connect(self._category_menu)
         self.cats.itemClicked.connect(lambda it: self._select_filter(it.data(Qt.UserRole), self.cats))
-        v.addWidget(self.cats, 1)
+        v.addWidget(self.cats)
 
-        settings = QPushButton("⚙   Settings")
-        settings.setObjectName("Flat")
-        settings.clicked.connect(self.open_settings)
-        v.addWidget(settings)
+        self.games_label = QLabel("GAMES")
+        self.games_label.setObjectName("SectionLabel")
+        v.addWidget(self.games_label)
+        self.game_list = QListWidget()
+        self.game_list.setObjectName("SideList")
+        self.game_list.setIconSize(QSize(20, 30))
+        self.game_list.setCursor(Qt.PointingHandCursor)
+        self.game_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.game_list.customContextMenuRequested.connect(
+            lambda pos: (it := self.game_list.itemAt(pos)) and self._game_menu(
+                it.data(Qt.UserRole), self.game_list.viewport().mapToGlobal(pos)))
+        self.game_list.itemClicked.connect(lambda it: self.open_game(it.data(Qt.UserRole)))
+        v.addWidget(self.game_list, 1)
         return side
 
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         v = QVBoxLayout(page)
-        v.setContentsMargins(24, 18, 16, 0)
+        v.setContentsMargins(26, 18, 16, 0)
+        v.setSpacing(12)
         top = QHBoxLayout()
-        self.heading = QLabel("All games")
-        self.heading.setStyleSheet("font-size: 22px; font-weight: 700;")
+        self.heading = QLabel("ALL GAMES")
+        self.heading.setStyleSheet(f"font-size: 14px; font-weight: 700; letter-spacing: 1px; color: {style.TEXT_BRIGHT};")
         self.count = QLabel()
-        self.count.setStyleSheet(f"color: {style.MUTED}; padding-top: 6px;")
+        self.count.setStyleSheet(f"color: {style.MUTED}; font-size: 14px;")
         top.addWidget(self.heading)
         top.addWidget(self.count)
         top.addStretch()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search games  (Ctrl+F)")
-        self.search.setFixedWidth(220)
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self.refresh_grid)
         self.sort = QComboBox()
         self.sort.addItems(SORTS)
+        self.sort.setToolTip("Sort by")
         self.sort.currentIndexChanged.connect(self.refresh_grid)
-        addbtn = QPushButton("+  Add game")
-        addbtn.setObjectName("Primary")
-        addbtn.setToolTip("Add a game (Ctrl+N)")
-        addbtn.setCursor(Qt.PointingHandCursor)
-        addbtn.clicked.connect(self.add_game)
-        self.size_icon = QLabel("▣")
-        self.size_icon.setToolTip("Cover size")
-        self.size_icon.setStyleSheet(f"color: {style.MUTED}; font-size: 15px;")
+        self.size_icon = QLabel("SIZE")
+        self.size_icon.setStyleSheet(f"color: {style.MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
         self.cover_slider = QSlider(Qt.Horizontal)
         self.cover_slider.setRange(110, 240)
         self.cover_slider.setFixedWidth(110)
@@ -235,11 +273,17 @@ class MainWindow(QMainWindow):
         self.cover_slider.valueChanged.connect(self._cover_size_changed)
         top.addWidget(self.size_icon)
         top.addWidget(self.cover_slider)
-        top.addSpacing(6)
-        top.addWidget(self.search)
+        top.addSpacing(14)
+        sort_lbl = QLabel("SORT BY")
+        sort_lbl.setStyleSheet(f"color: {style.MUTED}; font-size: 11px; font-weight: 700; letter-spacing: 1px;")
+        self.sort_label = sort_lbl
+        top.addWidget(sort_lbl)
         top.addWidget(self.sort)
-        top.addWidget(addbtn)
         v.addLayout(top)
+        line = QWidget()
+        line.setFixedHeight(1)
+        line.setStyleSheet(f"background: {style.BORDER};")
+        v.addWidget(line)
 
         self.empty = QLabel()
         self.empty.setAlignment(Qt.AlignCenter)
@@ -262,6 +306,9 @@ class MainWindow(QMainWindow):
         p.toggle_favorite.connect(self.toggle_favorite)
         p.open_folder.connect(self.open_folder)
         p.achievement_toggled.connect(self.set_achievement)
+        p.reset_achievements.connect(self.reset_achievements)
+        p.review_saved.connect(self.save_review)
+        p.notes_saved.connect(self.save_notes)
 
     # ------------------------------------------------------------------ #
     # sidebar + grid
@@ -270,28 +317,55 @@ class MainWindow(QMainWindow):
         games = self.library.games
         self.views.clear()
         for key, label, n in (
-            (ALL, "\U0001F4DA   All games", len(games)),
-            (FAVORITES, "★   Favorites", sum(g.favorite for g in games)),
-            (RECENT, "\U0001F552   Recently played", sum(1 for g in games if g.last_played)),
-            (UNCATEGORIZED, "\U0001F4C2   Uncategorized", sum(1 for g in games if not g.categories)),
+            (ALL, "All games", len(games)),
+            (FAVORITES, "Favorites", sum(g.favorite for g in games)),
+            (RECENT, "Recently played", sum(1 for g in games if g.last_played)),
+            (UNCATEGORIZED, "Uncategorized", sum(1 for g in games if not g.categories)),
         ):
             it = QListWidgetItem(label)
             it.setData(ROLE_COUNT, n)
             it.setData(Qt.UserRole, key)
-            it.setSizeHint(QSize(0, 34))
+            it.setSizeHint(QSize(0, 30))
             self.views.addItem(it)
+        self.views.setFixedHeight(self.views.count() * 30 + 4)
         self.cats.clear()
         for c in self.library.categories:
             n = sum(1 for g in games if c in g.categories)
             it = QListWidgetItem(c)
             it.setData(ROLE_COUNT, n)
             it.setData(Qt.UserRole, c)
-            it.setSizeHint(QSize(0, 34))
+            it.setSizeHint(QSize(0, 30))
             self.cats.addItem(it)
+        if not self.library.categories:
+            it = QListWidgetItem("Click + to make one")
+            it.setFlags(Qt.NoItemFlags)
+            it.setForeground(QColor(style.MUTED))
+            it.setSizeHint(QSize(0, 30))
+            self.cats.addItem(it)
+        self.cats.setFixedHeight(min(self.cats.count(), 8) * 30 + 4)
         for lst in (self.views, self.cats):
             for i in range(lst.count()):
                 if lst.item(i).data(Qt.UserRole) == self.current_filter:
                     lst.setCurrentRow(i)
+
+    def refresh_game_list(self, games: list[Game]):
+        """The compact list of games in the sidebar, like Steam's library list."""
+        self.game_list.clear()
+        current = self.page.game.id if self.stack.currentIndex() == 1 and self.page.game else None
+        for g in sorted(games, key=lambda g: g.name.lower()):
+            it = QListWidgetItem(QIcon(cover_pixmap(g, 20, 30)), g.name)
+            it.setData(Qt.UserRole, g.id)
+            it.setSizeHint(QSize(0, 34))
+            if g.id in self.sessions:
+                it.setText(f"{g.name}  -  Running")
+                it.setForeground(QColor(style.GREEN))
+            elif getattr(g, "missing", False):
+                it.setForeground(QColor(style.MUTED))
+                it.setToolTip("Game files not found")
+            self.game_list.addItem(it)
+            if g.id == current:
+                it.setSelected(True)
+        self.games_label.setText(f"GAMES ({len(games)})")
 
     def _select_filter(self, key: str, source: QListWidget):
         other = self.cats if source is self.views else self.views
@@ -324,19 +398,23 @@ class MainWindow(QMainWindow):
             "Most played": lambda g: -g.total_playtime,
             "Recently added": lambda g: -g.added,
             "Achievement progress": lambda g: -(g.achievements_unlocked / g.achievements_total if g.achievements_total else -1),
+            "Your rating": lambda g: (-g.rating, g.name.lower()),
         }[sort]
         return sorted(games, key=key)
 
     def refresh_grid(self):
         names = {ALL: "All games", FAVORITES: "Favorites", RECENT: "Recently played", UNCATEGORIZED: "Uncategorized"}
-        self.heading.setText(names.get(self.current_filter, self.current_filter))
+        self.heading.setText(names.get(self.current_filter, self.current_filter).upper())
+        for g in self.library.games:     # flag games whose files are gone (shown greyed out)
+            g.missing = not os.path.exists(g.exe)
         games = self._filtered()
         self.grid.set_games(games)
-        self.count.setText(f"  {len(games)} game{'s' if len(games) != 1 else ''}")
+        self.refresh_game_list(games)
+        self.count.setText(f"({len(games)})")
         if not self.library.games:
-            self.empty.setText("Your library is empty.\nClick  “+  Add game”  and pick a game's folder to get started.")
+            self.empty.setText("Your library is empty.\nClick  \u201c+ ADD GAME\u201d  at the top and pick a game's folder to get started.")
         elif not games:
-            self.empty.setText("No games here yet.\nRight-click a game to add it to a category.")
+            self.empty.setText("No games here yet.\nRight-click a game to add it to a collection.")
         self.empty.setVisible(not games)
         self.grid.setVisible(bool(games))
 
@@ -354,6 +432,7 @@ class MainWindow(QMainWindow):
     def show_library(self):
         self._switch_page(0)
         self.refresh_grid()
+        self.game_list.clearSelection()
 
     def open_game(self, game_id: str):
         g = self.library.get(game_id)
@@ -362,6 +441,9 @@ class MainWindow(QMainWindow):
         self.page.show_game(g)
         self._update_running_ui()
         self._switch_page(1)
+        for i in range(self.game_list.count()):
+            it = self.game_list.item(i)
+            it.setSelected(it.data(Qt.UserRole) == game_id)
         if game_id not in self.sessions:
             self._sync_unlocks_async(g)
 
@@ -379,31 +461,31 @@ class MainWindow(QMainWindow):
     # categories
     # ------------------------------------------------------------------ #
     def new_category(self):
-        name, ok = QInputDialog.getText(self, "New category", "Name (e.g. Retro, Emulated, Backlog):")
+        name, ok = QInputDialog.getText(self, "New collection", "Name (e.g. Retro, Emulated, Backlog):")
         if ok and name.strip():
             if not self.library.add_category(name):
-                QMessageBox.information(self, "New category", "A category with that name already exists.")
+                QMessageBox.information(self, "New collection", "A collection with that name already exists.")
             self.refresh_sidebar()
 
     def _category_menu(self, pos):
         it = self.cats.itemAt(pos)
-        if not it:
+        if not it or it.data(Qt.UserRole) is None:
             m = QMenu(self)
-            m.addAction("New category...", self.new_category)
+            m.addAction("New collection...", self.new_category)
             m.exec(self.cats.viewport().mapToGlobal(pos))
             return
         name = it.data(Qt.UserRole)
         m = QMenu(self)
         ren = m.addAction("Rename...")
-        dele = m.addAction("Delete category")
+        dele = m.addAction("Delete collection")
         act = m.exec(self.cats.viewport().mapToGlobal(pos))
         if act == ren:
-            new, ok = QInputDialog.getText(self, "Rename category", "New name:", text=name)
+            new, ok = QInputDialog.getText(self, "Rename collection", "New name:", text=name)
             if ok and self.library.rename_category(name, new):
                 if self.current_filter == name:
                     self.current_filter = new.strip()
         elif act == dele:
-            if QMessageBox.question(self, "Delete category",
+            if QMessageBox.question(self, "Delete collection",
                                     f"Delete '{name}'? The games stay in your library.") == QMessageBox.Yes:
                 self.library.delete_category(name)
                 if self.current_filter == name:
@@ -419,7 +501,7 @@ class MainWindow(QMainWindow):
         m.addAction("▶  Play", lambda: self.play(g.id)).setEnabled(g.id not in self.sessions)
         m.addAction("Open", lambda: self.open_game(g.id))
         m.addSeparator()
-        cm = m.addMenu("Categories")
+        cm = m.addMenu("Collections")
         for c in self.library.categories:
             a = cm.addAction(c)
             a.setCheckable(True)
@@ -427,7 +509,7 @@ class MainWindow(QMainWindow):
             a.toggled.connect(lambda on, c=c: self._set_category(g, c, on))
         if self.library.categories:
             cm.addSeparator()
-        cm.addAction("New category...", lambda: self._new_category_for(g))
+        cm.addAction("New collection...", lambda: self._new_category_for(g))
         m.addAction("Unfavorite" if g.favorite else "Add to favorites", lambda: self.toggle_favorite(g.id))
         m.addAction("Edit...", lambda: self.edit_game(g.id))
         m.addSeparator()
@@ -444,7 +526,7 @@ class MainWindow(QMainWindow):
         self.refresh_grid()
 
     def _new_category_for(self, g: Game):
-        name, ok = QInputDialog.getText(self, "New category", "Name:")
+        name, ok = QInputDialog.getText(self, "New collection", "Name:")
         if ok and name.strip():
             self.library.add_category(name)
             self._set_category(g, name.strip(), True)
@@ -489,12 +571,69 @@ class MainWindow(QMainWindow):
             return
         if QMessageBox.question(
                 self, "Remove game",
-                f"Remove '{g.name}' from GameKeeper?\n\nThis deletes its playtime and achievement records "
-                "in GameKeeper. The game's own files are not touched.") != QMessageBox.Yes:
+                f"Remove '{g.name}' from the library?\n\nIts playtime, achievements, rating and review are "
+                "kept in the archive (sidebar \u2192 Archived games), so you can restore it any time. "
+                "The game's own files are not touched.") != QMessageBox.Yes:
             return
         self.library.remove(g)
         self.refresh_sidebar()
         self.show_library()
+        self.statusBar().showMessage(f"{g.name} moved to the archive.", 8000)
+
+    def save_review(self, game_id: str, rating: int, text: str):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        g.rating, g.review = rating, text
+        g.review_updated = int(time.time()) if (rating or text) else 0
+        self.library.save()
+        if self.page.game and self.page.game.id == g.id:
+            self.page.refresh_stats()
+            self.page.load_review()
+        self.grid.viewport().update()
+        self.statusBar().showMessage("Review saved." if (rating or text) else "Review deleted.", 5000)
+
+    def save_notes(self, game_id: str, notes: str):
+        g = self.library.get(game_id)
+        if g:
+            g.notes = notes
+            self.library.save()
+            self.statusBar().showMessage("Notes saved.", 4000)
+
+    def open_archive(self):
+        dlg = ArchiveDialog(self.library, self)
+        dlg.exec()
+        if dlg.restored:
+            self.refresh_sidebar()
+            self.refresh_grid()
+            self.statusBar().showMessage(f"Restored {len(dlg.restored)} game(s).", 6000)
+
+    def reset_achievements(self, game_id: str, which: str):
+        """which: 'manual' = only those unlocked by hand, 'all' = everything."""
+        g = self.library.get(game_id)
+        if not g:
+            return
+        achset = AchievementSet(g.id)
+        targets = [a for a in achset.items if a.unlocked and (which == "all" or a.source == "manual")]
+        if not targets:
+            QMessageBox.information(self, "Reset achievements",
+                                    "No achievements unlocked by hand." if which == "manual" else "Nothing is unlocked.")
+            return
+        if which == "manual":
+            text = (f"Lock the {len(targets)} achievement(s) you unlocked by hand in {g.name}?\n\n"
+                    "Automatic unlocks and ones imported from Steam stay.")
+        else:
+            text = (f"Lock all {len(targets)} unlocked achievement(s) in {g.name}?\n\n"
+                    "Achievements the game's saves still show as earned will unlock again "
+                    "the next time GameKeeper checks them.")
+        if QMessageBox.question(self, "Reset achievements", text) != QMessageBox.Yes:
+            return
+        for a in targets:
+            achset.lock(a.api_name)
+        achset.save()
+        self._update_counts(g, achset)
+        self._refresh_game(g)
+        self.statusBar().showMessage(f"Locked {len(targets)} achievement(s).", 6000)
 
     def open_folder(self, game_id: str):
         g = self.library.get(game_id)
@@ -556,6 +695,7 @@ class MainWindow(QMainWindow):
     def _update_running_ui(self):
         self.grid.running = set(self.sessions)
         self.grid.viewport().update()
+        self.refresh_game_list(self._filtered())
         if self.page.game:
             self.page.set_running(self.page.game.id in self.sessions)
 
