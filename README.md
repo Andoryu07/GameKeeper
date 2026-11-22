@@ -90,6 +90,16 @@ The popup appears in the bottom-right corner over windowed and borderless
 games. Exclusive fullscreen games draw over everything, so switch those to
 borderless to see it. Sound and duration are in Settings.
 
+## Artwork
+
+Linking a game to Steam downloads its cover, background, logo and small icon,
+the same artwork Steam's library uses. Games added before an artwork type was
+supported get it automatically the next time you open their page.
+
+To use your own images (handy for retro and non-Steam games), use
+**⚙ → Artwork → Set custom cover / background / logo / icon**. Custom artwork
+is never overwritten by Steam data; **Use Steam artwork again** undoes it.
+
 ## Ratings and reviews
 
 On a game's page, open the **REVIEW** tab to rate it from 1 to 10 stars and

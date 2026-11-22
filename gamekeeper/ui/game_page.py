@@ -70,16 +70,34 @@ def _card(title: str = "") -> tuple[QWidget, QVBoxLayout]:
 # --------------------------------------------------------------------------- #
 # Banner
 # --------------------------------------------------------------------------- #
+def _stamp(path) -> tuple:
+    try:
+        return (str(path), path.stat().st_mtime_ns)
+    except (OSError, AttributeError):
+        return (str(path), 0)
+
+
 class Hero(QWidget):
+    """Banner artwork with the game's logo (or its name) in the corner."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pm = QPixmap()
         self._scaled = QPixmap()
+        self.logo = QPixmap()
         self.title = ""
+        self._key = None
 
-    def set_image(self, path):
-        self.pm = QPixmap(str(path)) if path and path.exists() else QPixmap()
-        self._scaled = QPixmap()
+    def set_game(self, game: Game):
+        """Load the game's banner and logo; reloads only when the files changed."""
+        hero = game.hero_path if game.hero_path.exists() else game.cover_path
+        key = (_stamp(hero), _stamp(game.logo_path))
+        self.title = game.name
+        if key != self._key:
+            self._key = key
+            self.pm = QPixmap(str(hero)) if hero.exists() else QPixmap()
+            self.logo = QPixmap(str(game.logo_path)) if game.logo_path.exists() else QPixmap()
+            self._scaled = QPixmap()
         self.update()
 
     def resizeEvent(self, e):
@@ -102,7 +120,12 @@ class Hero(QWidget):
         g.setColorAt(0.6, QColor(0, 0, 0, 60))
         g.setColorAt(1, QColor(0, 0, 0, 170))
         p.fillRect(r, g)
-        if self.title:
+        if not self.logo.isNull():
+            max_w = min(r.width() * 0.42, 460)
+            max_h = r.height() * 0.5
+            lg = self.logo.scaled(int(max_w), int(max_h), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            p.drawPixmap(32, r.height() - lg.height() - 22, lg)
+        elif self.title:
             f = QFont(self.font())
             f.setPixelSize(40 if r.width() > 900 else 30)
             f.setBold(True)
@@ -281,6 +304,8 @@ class GamePage(QWidget):
     reset_achievements = Signal(str, str)          # game id, "manual" | "all"
     review_saved = Signal(str, int, str)           # game id, rating, review text
     notes_saved = Signal(str, str)
+    set_artwork = Signal(str, str)                 # game id, "cover" | "hero" | "logo" | "icon"
+    reset_artwork = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -559,12 +584,10 @@ class GamePage(QWidget):
             self.search.clear()
             self.reveal.setChecked(False)
             self.list.delegate.clear_cache()
-            self.hero.set_image(game.hero_path if game.hero_path.exists() else game.cover_path)
             self.list.scrollToTop()
             self.load_review()
             self.notes_edit.setPlainText(game.notes)
-        self.hero.title = game.name
-        self.hero.update()
+        self.hero.set_game(game)
         missing = not os.path.exists(game.exe)
         self.play_btn.setVisible(not missing)
         self.locate_btn.setVisible(missing)
@@ -752,6 +775,12 @@ class GamePage(QWidget):
         m = QMenu(self)
         m.addAction("Edit game...", lambda: self.edit.emit(g.id))
         m.addAction("Open game folder", lambda: self.open_folder.emit(g.id))
+        art = m.addMenu("Artwork")
+        for kind, label in (("cover", "cover"), ("hero", "background"), ("logo", "logo"), ("icon", "icon")):
+            art.addAction(f"Set custom {label}...", lambda k=kind: self.set_artwork.emit(g.id, k))
+        art.addSeparator()
+        ra = art.addAction("Use Steam artwork again", lambda: self.reset_artwork.emit(g.id))
+        ra.setEnabled(bool(g.custom_art) and bool(g.appid))
         m.addSeparator()
         a1 = m.addAction("Pull / refresh Steam data", lambda: self.fetch_data.emit(g.id))
         a2 = m.addAction("Import my unlocks and playtime from Steam", lambda: self.import_steam.emit(g.id))

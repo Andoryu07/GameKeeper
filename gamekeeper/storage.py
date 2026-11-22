@@ -12,6 +12,8 @@ Layout::
       games/<game id>/
         cover.jpg               portrait cover (600x900)
         hero.jpg                wide banner for the detail page
+        logo.png                transparent game logo shown on the banner
+        icon.jpg                small square icon for lists
         achievements.json       schema + unlock state
         icons/                  achievement icons
       archive/<game id>/        games removed from the library (restorable)
@@ -193,6 +195,7 @@ class Game:
     achievements_unlocked: int = 0
     run_as_admin: bool = False
     notes: str = ""
+    custom_art: list[str] = field(default_factory=list)   # artwork you picked yourself, never overwritten
     rating: int = 0                 # 1-10, 0 = not rated
     review: str = ""
     review_updated: int = 0
@@ -208,6 +211,19 @@ class Game:
     @property
     def hero_path(self) -> Path:
         return self.folder / "hero.jpg"
+
+    @property
+    def logo_path(self) -> Path:
+        return self.folder / "logo.png"
+
+    @property
+    def icon_path(self) -> Path:
+        return self.folder / "icon.jpg"
+
+    def art_path(self, kind: str) -> Path:
+        """kind: cover, hero, logo or icon."""
+        return {"cover": self.cover_path, "hero": self.hero_path,
+                "logo": self.logo_path, "icon": self.icon_path}[kind]
 
     @property
     def total_playtime(self) -> int:

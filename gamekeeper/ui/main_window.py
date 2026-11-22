@@ -7,9 +7,9 @@ import sys
 import time
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox, QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QComboBox, QFileDialog, QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QStackedWidget, QStyle,
     QStyledItemDelegate, QVBoxLayout, QWidget,
 )
@@ -21,7 +21,7 @@ from . import style
 from .dialogs import AddGameDialog, ArchiveDialog, EditGameDialog, SettingsDialog
 from .game_page import GamePage
 from .icon import app_pixmap
-from .library_view import LibraryView, cover_pixmap
+from .library_view import LibraryView, icon_pixmap
 from .toast import ToastManager
 from .workers import run_async
 
@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         self.toasts = ToastManager()
         self._apply_settings()
         self.current_filter = ALL
+        self._art_checked: set[str] = set()
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -237,7 +238,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.games_label)
         self.game_list = QListWidget()
         self.game_list.setObjectName("SideList")
-        self.game_list.setIconSize(QSize(20, 30))
+        self.game_list.setIconSize(QSize(24, 24))
         self.game_list.setCursor(Qt.PointingHandCursor)
         self.game_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.game_list.customContextMenuRequested.connect(
@@ -309,6 +310,8 @@ class MainWindow(QMainWindow):
         p.reset_achievements.connect(self.reset_achievements)
         p.review_saved.connect(self.save_review)
         p.notes_saved.connect(self.save_notes)
+        p.set_artwork.connect(self.set_artwork)
+        p.reset_artwork.connect(self.reset_artwork)
 
     # ------------------------------------------------------------------ #
     # sidebar + grid
@@ -353,7 +356,7 @@ class MainWindow(QMainWindow):
         self.game_list.clear()
         current = self.page.game.id if self.stack.currentIndex() == 1 and self.page.game else None
         for g in sorted(games, key=lambda g: g.name.lower()):
-            it = QListWidgetItem(QIcon(cover_pixmap(g, 20, 30)), g.name)
+            it = QListWidgetItem(QIcon(icon_pixmap(g, 24)), g.name)
             it.setData(Qt.UserRole, g.id)
             it.setSizeHint(QSize(0, 34))
             if g.id in self.sessions:
@@ -446,6 +449,7 @@ class MainWindow(QMainWindow):
             it.setSelected(it.data(Qt.UserRole) == game_id)
         if game_id not in self.sessions:
             self._sync_unlocks_async(g)
+        self._fill_missing_artwork(g)
 
     def _refresh_game(self, g: Game):
         """Re-render whatever is showing this game."""
@@ -490,6 +494,7 @@ class MainWindow(QMainWindow):
                 self.library.delete_category(name)
                 if self.current_filter == name:
                     self.current_filter = ALL
+        self._art_checked: set[str] = set()
         self.refresh_sidebar()
         self.refresh_grid()
 
@@ -592,6 +597,52 @@ class MainWindow(QMainWindow):
             self.page.load_review()
         self.grid.viewport().update()
         self.statusBar().showMessage("Review saved." if (rating or text) else "Review deleted.", 5000)
+
+    def _fill_missing_artwork(self, g: Game):
+        """Quietly download any artwork a Steam-linked game is missing (once per run)."""
+        if not g.appid or g.id in self._art_checked:
+            return
+        self._art_checked.add(g.id)
+        if all(g.art_path(k).exists() or k in g.custom_art for k in ("cover", "hero", "logo", "icon")):
+            return
+        run_async(lambda: steam.download_artwork(g), lambda got: got and self._artwork_changed(g))
+
+    def _artwork_changed(self, g: Game):
+        self.refresh_grid()
+        if self.page.game and self.page.game.id == g.id:
+            self.page.show_game(g)
+
+    def set_artwork(self, game_id: str, kind: str):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        names = {"cover": "cover (portrait, e.g. 600x900)", "hero": "background (wide)",
+                 "logo": "logo (ideally a transparent PNG)", "icon": "icon (square)"}
+        path, _ = QFileDialog.getOpenFileName(self, f"Choose a {names[kind]}", "",
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
+        if not path:
+            return
+        img = QImage(path)
+        if img.isNull():
+            QMessageBox.warning(self, "Artwork", "That file couldn't be opened as an image.")
+            return
+        g.folder.mkdir(parents=True, exist_ok=True)
+        dest = g.art_path(kind)
+        img.save(str(dest), "PNG" if dest.suffix == ".png" else "JPG", 92)
+        if kind not in g.custom_art:
+            g.custom_art.append(kind)
+        self.library.save()
+        self._artwork_changed(g)
+
+    def reset_artwork(self, game_id: str):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        kinds, g.custom_art = list(g.custom_art), []
+        for k in kinds:
+            g.art_path(k).unlink(missing_ok=True)
+        self.library.save()
+        run_async(lambda: steam.download_artwork(g), lambda _: self._artwork_changed(g))
 
     def save_notes(self, game_id: str, notes: str):
         g = self.library.get(game_id)
@@ -793,7 +844,7 @@ class MainWindow(QMainWindow):
         settings = self.settings
 
         def job(progress):
-            steam.download_artwork(g)
+            steam.download_artwork(g, force=True)
             try:
                 achset = steam.fetch_achievements(g, settings, progress)
                 return achset.total, achset.unlocked_count, None

@@ -8,6 +8,7 @@ privacy setting.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ API = "https://api.steampowered.com"
 STORE = "https://store.steampowered.com"
 CDN = "https://cdn.akamai.steamstatic.com/steam/apps"
 ICONS = "https://cdn.akamai.steamstatic.com/steamcommunity/public/images/apps"
+STORE_ASSETS = "https://shared.akamai.steamstatic.com/store_item_assets/"
 TIMEOUT = 20
 
 session = requests.Session()
@@ -78,15 +80,56 @@ def _download(url: str, dest: Path) -> bool:
     return True
 
 
-def download_artwork(game: Game) -> None:
+def store_assets(appid: int) -> dict:
+    """Artwork file names from Steam's store API.
+
+    Newer games keep artwork under hashed paths (e.g. ``<hash>/library_hero.jpg``)
+    that can't be guessed, so ask Steam for the exact names.
+    """
+    query = json.dumps({"ids": [{"appid": appid}],
+                        "context": {"language": "english", "country_code": "US"},
+                        "data_request": {"include_assets": True}})
+    try:
+        data = _get(f"{API}/IStoreBrowseService/GetItems/v1/", input_json=query)
+        items = data.get("response", {}).get("store_items", [])
+        return items[0].get("assets", {}) if items else {}
+    except (SteamError, IndexError, AttributeError):
+        return {}
+
+
+def download_artwork(game: Game, force: bool = False) -> list[str]:
+    """Download cover, banner, logo and icon. Returns the kinds downloaded.
+
+    Artwork you set yourself (``game.custom_art``) is never replaced.
+    """
     if not game.appid:
-        return
+        return []
     a = game.appid
-    if not _download(f"{CDN}/{a}/library_600x900_2x.jpg", game.cover_path):
-        if not _download(f"{CDN}/{a}/library_600x900.jpg", game.cover_path):
-            _download(f"{CDN}/{a}/header.jpg", game.cover_path)
-    _download(f"{CDN}/{a}/library_hero.jpg", game.hero_path) or \
-        _download(f"{CDN}/{a}/page_bg_generated_v6b.jpg", game.hero_path)
+    assets = store_assets(a)
+    fmt = assets.get("asset_url_format", f"steam/apps/{a}/${{FILENAME}}")
+
+    def asset(*keys: str) -> list[str]:
+        return [STORE_ASSETS + fmt.replace("${FILENAME}", assets[k]) for k in keys if assets.get(k)]
+
+    legacy = f"{CDN}/{a}"
+    candidates = {
+        "cover": asset("library_capsule_2x", "library_capsule")
+                 + [f"{legacy}/library_600x900_2x.jpg", f"{legacy}/library_600x900.jpg", f"{legacy}/header.jpg"],
+        "hero": asset("library_hero", "library_hero_2x")
+                + [f"{legacy}/library_hero.jpg"] + asset("page_background", "raw_page_background"),
+        "logo": [f"{STORE_ASSETS}steam/apps/{a}/logo.png", f"{legacy}/logo.png"],
+        "icon": ([f"{ICONS}/{a}/{assets['community_icon']}.jpg"] if assets.get("community_icon") else []),
+    }
+    got = []
+    for kind, urls in candidates.items():
+        if kind in game.custom_art:
+            continue
+        dest = game.art_path(kind)
+        if dest.exists() and not force:
+            continue
+        if any(_download(u, dest) for u in urls):
+            got.append(kind)
+    return got
 
 
 # --------------------------------------------------------------------------- #

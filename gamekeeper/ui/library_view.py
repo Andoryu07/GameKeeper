@@ -36,6 +36,25 @@ def cover_pixmap(game: Game, w: int = DEFAULT_COVER_W, h: int | None = None) -> 
     return pm
 
 
+def icon_pixmap(game: Game, size: int = 24) -> QPixmap:
+    """Small square icon: Steam's game icon, or a square crop of the cover."""
+    path = game.icon_path
+    try:
+        stamp = path.stat().st_mtime if path.exists() else 0
+    except OSError:
+        stamp = 0
+    key = f"icon:{game.id}:{stamp}:{size}"
+    if key in _cache:
+        return _cache[key]
+    pm = QPixmap(str(path)) if stamp else QPixmap()
+    if pm.isNull():
+        cover = cover_pixmap(game, size * 2, size * 3)
+        pm = cover.copy(0, 0, size * 2, size * 2)
+    pm = pm.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    _cache[key] = pm
+    return pm
+
+
 def _load_scaled(path: str, w: int, h: int) -> QPixmap:
     """Decode the image straight at (about) the size it's shown at. Much faster
     than loading the full image and shrinking it afterwards."""
