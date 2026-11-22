@@ -73,6 +73,7 @@ Supported games:
 | Game | Automatic | By hand | Notes |
 |---|---|---|---|
 | Stardew Valley | 47 of 49 | Fector's Challenge, Protector Of The Valley | Unlocks appear when the day ends and the game saves. |
+| Tomb Raider (2013) | 19 of 35 single-player | Skills, weapon upgrades, some kill types, one-off moments | Choose the save file under Edit game. More counters can be added as they're identified. |
 
 Each game's rules live in `gamekeeper/triggers/` (one file per game; see
 `stardew_valley.py`). For games without rules, right-click an achievement to
