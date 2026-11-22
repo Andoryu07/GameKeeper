@@ -219,6 +219,8 @@ class Game:
     achievements_total: int = 0     # cached for the grid
     achievements_unlocked: int = 0
     run_as_admin: bool = False
+    save_path: str = ""             # the game's save file, for games whose rules need it
+    keep_save_copies: bool = False  # snapshot the save each time it changes (for working out rules)
     notes: str = ""
     custom_art: list[str] = field(default_factory=list)   # artwork you picked yourself, never overwritten
     rating: int = 0                 # 1-10, 0 = not rated

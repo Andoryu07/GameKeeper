@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QVBoxLayout, QWidget,
 )
 
-from .. import backup, scanner, shortcut, steam
+from .. import backup, scanner, shortcut, snapshots, steam
 from ..storage import Game, Library, Settings
 from . import icon, style
 from .workers import run_async
@@ -258,7 +258,7 @@ class EditGameDialog(QDialog):
     def __init__(self, game: Game, library: Library, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Edit - {game.name}")
-        self.resize(620, 680)
+        self.resize(640, 780)
         self.game = game
         self.appid_changed = False
 
@@ -288,6 +288,26 @@ class EditGameDialog(QDialog):
         self.admin.setToolTip("Windows will ask for permission each time the game starts.")
         form.addRow("", self.admin)
         form.addRow("Start in", self.workdir)
+        self.save_file = QLineEdit(game.save_path)
+        self.save_file.setPlaceholderText("Only needed for some games' automatic achievements")
+        save_btn = QPushButton("...")
+        save_btn.setFixedWidth(36)
+        save_btn.clicked.connect(self._pick_save)
+        save_row = QHBoxLayout()
+        save_row.addWidget(self.save_file, 1)
+        save_row.addWidget(save_btn)
+        form.addRow("Save file", save_row)
+        self.keep_copies = QCheckBox("Keep a copy of every save while playing")
+        self.keep_copies.setChecked(game.keep_save_copies)
+        self.keep_copies.setToolTip("Helps work out automatic achievements for new games. "
+                                    "Copies go to data/save_copies.")
+        copies_row = QHBoxLayout()
+        copies_row.addWidget(self.keep_copies)
+        open_copies = QPushButton("Open copies folder")
+        open_copies.clicked.connect(lambda: open_path(snapshots.folder(game)))
+        copies_row.addWidget(open_copies)
+        copies_row.addStretch()
+        form.addRow("", copies_row)
         form.addRow("Collections", self.cats)
         form.addRow("Notes", self.notes)
         lay.addLayout(form)
@@ -305,6 +325,11 @@ class EditGameDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
 
+    def _pick_save(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choose the game's save file", self.save_file.text())
+        if path:
+            self.save_file.setText(path)
+
     def _pick_exe(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choose the game's executable", self.exe.text())
         if path:
@@ -318,6 +343,8 @@ class EditGameDialog(QDialog):
         g.args = self.args.text().strip()
         g.run_as_admin = self.admin.isChecked()
         g.working_dir = self.workdir.text().strip()
+        g.save_path = self.save_file.text().strip()
+        g.keep_save_copies = self.keep_copies.isChecked()
         g.categories = self.cats.selected()
         g.notes = self.notes.toPlainText()
         if self.linker.appid != g.appid:

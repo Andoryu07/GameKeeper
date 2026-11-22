@@ -8,6 +8,7 @@ import psutil
 from PySide6.QtCore import QThread, Signal
 
 from . import scanner, tracking
+from .snapshots import Snapshotter
 from .storage import Game
 from .winlaunch import LaunchCancelled, NeedsAdmin, launch
 
@@ -69,12 +70,15 @@ class GameSession(QThread):
         # from non-elevated programs, but its name is still visible.
         exe_names = {p.name.lower() for p in scanner.find_executables(g.game_dir)} | {Path(g.exe).name.lower()}
         known = set(tracking.read_unlocks(g))   # unlocks that existed before launch
+        snaps = Snapshotter(g)
+        snaps.check()
 
         try:
             while not self._stop:
                 time.sleep(POLL_SECONDS)
                 now = time.time()
 
+                snaps.check()
                 for name, when in tracking.read_unlocks(g).items():
                     if name not in known:
                         known.add(name)
@@ -89,6 +93,7 @@ class GameSession(QThread):
 
             # one last check, games often save right before exiting
             time.sleep(1)
+            snaps.check()
             for name in tracking.read_unlocks(g):
                 if name not in known:
                     self.unlocked.emit(g.id, name, int(time.time()))

@@ -78,6 +78,15 @@ Each game's rules live in `gamekeeper/triggers/` (one file per game; see
 `stardew_valley.py`). For games without rules, right-click an achievement to
 unlock it by hand.
 
+### Helping set up a new game
+
+Rules for a new game are worked out by comparing saves made before and after
+known events. To collect them without any fuss, open **Edit game**, choose the
+game's **Save file** and tick **Keep a copy of every save while playing**.
+GameKeeper then copies the save, timestamped, each time it changes during play
+(to `data/save_copies/`). Play normally, jot down roughly when you did what,
+and send the copies along.
+
 ### Run as administrator
 
 Tick **Run as administrator** when adding a game or under **Edit**. Windows

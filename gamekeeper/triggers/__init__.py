@@ -29,7 +29,12 @@ class GameRules:
     #: Achievements that can't be read from the save: {api name: reason}
     manual: dict[str, str] = {}
 
+    #: True if the user has to point GameKeeper at the save file (Edit game -> Save file)
+    needs_save_path: bool = False
+
     def __init__(self):
+        #: the save file chosen for the game, if any (set before each read)
+        self.save_path: Path | None = None
         self._sig = None
         self._cache: dict[str, int] = {}
         self._lock = threading.Lock()   # read from the UI and the game session thread
