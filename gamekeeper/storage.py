@@ -81,6 +81,8 @@ class Settings:
     language: str = "english"
     toast_sound: bool = True
     toast_seconds: int = 6
+    close_to_tray: bool = True      # closing the window keeps GameKeeper running in the tray
+    tray_hint_shown: bool = False
     backup_dir: str = ""            # empty = data/backups
     last_backup: int = 0
     shortcut_offered: bool = False

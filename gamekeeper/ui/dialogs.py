@@ -358,7 +358,7 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: Settings, parent=None, test_popup=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.resize(580, 780)
+        self.resize(600, 860)
         self.settings = settings
         lay = QVBoxLayout(self)
 
@@ -419,6 +419,15 @@ class SettingsDialog(QDialog):
                             "folder for extra safety."))
         lay.addWidget(boxb)
 
+        boxt = QGroupBox("Window")
+        ft = QVBoxLayout(boxt)
+        self.tray = QCheckBox("Closing the window keeps GameKeeper running in the system tray")
+        self.tray.setChecked(settings.close_to_tray)
+        ft.addWidget(self.tray)
+        ft.addWidget(_hint("Games keep being tracked while GameKeeper is in the tray. "
+                           "Right-click the tray icon to quit."))
+        lay.addWidget(boxt)
+
         box3 = QGroupBox("Shortcuts")
         b3 = QVBoxLayout(box3)
         row = QHBoxLayout()
@@ -475,6 +484,7 @@ class SettingsDialog(QDialog):
         s.toast_sound = self.sound.isChecked()
         s.toast_seconds = self.secs.value()
         s.backup_dir = self.backup_dir.text().strip()
+        s.close_to_tray = self.tray.isChecked()
         s.save()
         super().accept()
 

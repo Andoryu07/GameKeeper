@@ -10,7 +10,8 @@ from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, 
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QGraphicsOpacityEffect, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QStackedWidget, QStyle,
+    QApplication, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider, QStackedWidget,
+    QStyle, QSystemTrayIcon,
     QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
@@ -20,7 +21,7 @@ from ..storage import AchievementSet, Game, Library, Settings
 from . import style
 from .dialogs import AddGameDialog, ArchiveDialog, EditGameDialog, SettingsDialog
 from .game_page import GamePage
-from .icon import app_pixmap
+from .icon import app_icon, app_pixmap
 from .library_view import LibraryView, icon_pixmap
 from .toast import ToastManager
 from .workers import run_async
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
         self.refresh_sidebar()
         self.refresh_grid()
         self._shortcuts()
+        self._build_tray()
         if self.settings.window_geometry:
             self.restoreGeometry(QByteArray.fromBase64(self.settings.window_geometry.encode()))
         settings = self.settings
@@ -748,6 +750,7 @@ class MainWindow(QMainWindow):
         self._update_running_ui()
 
     def _update_running_ui(self):
+        self._update_tray_tooltip()
         self.grid.running = set(self.sessions)
         self.grid.viewport().update()
         self.refresh_game_list(self._filtered())
@@ -976,14 +979,80 @@ class MainWindow(QMainWindow):
         self.statusBar().clearMessage()
         QMessageBox.warning(self, title, msg)
 
+    # ------------------------------------------------------------------ #
+    # system tray
+    # ------------------------------------------------------------------ #
+    def _build_tray(self):
+        self.tray = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray = QSystemTrayIcon(app_icon(), self)
+        self.tray.setToolTip("GameKeeper")
+        self.tray_menu = QMenu()
+        self.tray_menu.aboutToShow.connect(self._fill_tray_menu)
+        self.tray.setContextMenu(self.tray_menu)
+        self.tray.activated.connect(self._tray_activated)
+        self.tray.show()
+
+    def _fill_tray_menu(self):
+        m = self.tray_menu
+        m.clear()
+        m.addAction("Open GameKeeper", self.bring_to_front)
+        recent = sorted((g for g in self.library.games if g.last_played), key=lambda g: -g.last_played)[:6]
+        if recent:
+            m.addSeparator()
+            head = m.addAction("PLAY")
+            head.setEnabled(False)
+            for g in recent:
+                label = f"{g.name}  (running)" if g.id in self.sessions else g.name
+                a = m.addAction(QIcon(icon_pixmap(g, 16)), label, lambda gid=g.id: self.play(gid))
+                a.setEnabled(g.id not in self.sessions)
+        m.addSeparator()
+        m.addAction("Quit GameKeeper", self.quit_app)
+
+    def _tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            if self.isVisible() and not self.isMinimized():
+                self.hide()
+            else:
+                self.bring_to_front()
+
+    def bring_to_front(self):
+        self.show()
+        self.setWindowState((self.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
+        self.raise_()
+        self.activateWindow()
+
+    def _update_tray_tooltip(self):
+        if self.tray:
+            names = [self.library.get(i).name for i in self.sessions if self.library.get(i)]
+            self.tray.setToolTip("GameKeeper" + (f" - playing {', '.join(names)}" if names else ""))
+
+    def quit_app(self):
+        self._quitting = True
+        self.close()
+
     def closeEvent(self, e):
+        self.settings.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
+        self.settings.save()
+        if self.tray and self.settings.close_to_tray and not getattr(self, "_quitting", False):
+            e.ignore()
+            self.hide()
+            if not self.settings.tray_hint_shown:
+                self.settings.tray_hint_shown = True
+                self.settings.save()
+                self.tray.showMessage("GameKeeper is still running",
+                                      "It keeps tracking your games from the tray. Right-click the "
+                                      "tray icon to quit.", app_icon(), 6000)
+            return
         if self.sessions:
             names = ", ".join(self.library.get(i).name for i in self.sessions if self.library.get(i))
             if QMessageBox.question(
                     self, "Game still running",
-                    f"{names} is still running. Closing GameKeeper stops tracking its playtime "
-                    "and achievements for this session.\n\nClose anyway?") != QMessageBox.Yes:
+                    f"{names} is still running. Quitting GameKeeper stops tracking its playtime "
+                    "and achievements for this session.\n\nQuit anyway?") != QMessageBox.Yes:
                 e.ignore()
+                self._quitting = False
                 return
             for gid, s in self.sessions.items():
                 s.blockSignals(True)
@@ -993,6 +1062,7 @@ class MainWindow(QMainWindow):
                 if g and s.last_checkpoint:   # keep the time since the last checkpoint
                     g.playtime += int(time.time() - s.last_checkpoint)
         self.library.save()
-        self.settings.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
-        self.settings.save()
         e.accept()
+        if self.tray:
+            self.tray.hide()
+        QApplication.quit()
