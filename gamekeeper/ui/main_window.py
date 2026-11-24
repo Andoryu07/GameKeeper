@@ -15,12 +15,14 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
-from .. import backup, shortcut, steam, tracking
+from .. import backup, badges, shortcut, steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
 from .dialogs import AddGameDialog, ArchiveDialog, EditGameDialog, SettingsDialog
 from .game_page import GamePage
+from .badge_art import badge_image_path, level_name, level_ring
+from .badges_page import BadgesPage
 from .icon import app_icon, app_pixmap
 from .library_view import LibraryView, icon_pixmap
 from .toast import ToastManager
@@ -79,6 +81,9 @@ class MainWindow(QMainWindow):
         self.page = GamePage()
         self._wire_game_page()
         self.stack.addWidget(self.page)
+        self.badges_page = BadgesPage()
+        self.badges_page.open_badge.connect(self.open_badge_tab)
+        self.stack.addWidget(self.badges_page)
         body.addWidget(self.stack, 1)
         outer.addLayout(body, 1)
         self.page.session_start_fn = lambda gid: self.sessions[gid].started_at if gid in self.sessions else 0.0
@@ -88,6 +93,7 @@ class MainWindow(QMainWindow):
         self.refresh_grid()
         self._shortcuts()
         self._build_tray()
+        self.refresh_level()
         if self.settings.window_geometry:
             self.restoreGeometry(QByteArray.fromBase64(self.settings.window_geometry.encode()))
         settings = self.settings
@@ -112,7 +118,7 @@ class MainWindow(QMainWindow):
     def _escape(self):
         if self.focusWidget() in (self.search, self.page.search) and self.focusWidget().text():
             self.focusWidget().clear()
-        elif self.stack.currentIndex() == 1:
+        elif self.stack.currentIndex() in (1, 2):
             self.show_library()
 
     def _offer_shortcut(self):
@@ -172,6 +178,7 @@ class MainWindow(QMainWindow):
         h.addSpacing(26)
         self.nav: dict[str, QPushButton] = {}
         for key, label, slot in (("library", "LIBRARY", self.show_library),
+                                 ("badges", "BADGES", self.show_badges),
                                  ("archive", "ARCHIVE", self.open_archive),
                                  ("settings", "SETTINGS", self.open_settings)):
             b = QPushButton(label)
@@ -182,6 +189,16 @@ class MainWindow(QMainWindow):
             h.addWidget(b)
         self.nav["library"].setProperty("active", True)
         h.addStretch()
+        self.level_btn = QPushButton()
+        self.level_btn.setObjectName("LevelButton")
+        self.level_btn.setCursor(Qt.PointingHandCursor)
+        self.level_btn.setIconSize(QSize(30, 30))
+        self.level_btn.setStyleSheet("#LevelButton { background: transparent; border: none; padding: 4px 10px; "
+                                     f"color: {style.TEXT}; font-weight: 700; }}"
+                                     f"#LevelButton:hover {{ color: {style.TEXT_BRIGHT}; }}")
+        self.level_btn.clicked.connect(self.show_badges)
+        h.addWidget(self.level_btn)
+        h.addSpacing(8)
         add = QPushButton("+  ADD GAME")
         add.setObjectName("Primary")
         add.setToolTip("Add a game (Ctrl+N)")
@@ -316,6 +333,7 @@ class MainWindow(QMainWindow):
         p.reset_achievements.connect(self.reset_achievements)
         p.review_saved.connect(self.save_review)
         p.notes_saved.connect(self.save_notes)
+        p.craft_badge.connect(self.craft_badge)
         p.set_artwork.connect(self.set_artwork)
         p.reset_artwork.connect(self.reset_artwork)
 
@@ -438,10 +456,52 @@ class MainWindow(QMainWindow):
             self._save_timer = QTimer(self, singleShot=True, interval=800, timeout=self.settings.save)
         self._save_timer.start()
 
+    def _set_nav(self, key: str):
+        for k, b in self.nav.items():
+            b.setProperty("active", k == key)
+            b.style().unpolish(b)
+            b.style().polish(b)
+
     def show_library(self):
         self._switch_page(0)
+        self._set_nav("library")
         self.refresh_grid()
         self.game_list.clearSelection()
+
+    def show_badges(self):
+        self.badges_page.refresh(self.library.games)
+        self._switch_page(2)
+        self._set_nav("badges")
+        self.game_list.clearSelection()
+
+    def open_badge_tab(self, game_id: str):
+        self.open_game(game_id)
+        self.page.tab_group.button(1).click()
+
+    def refresh_level(self):
+        level, into, need = badges.profile_level(badges.profile_xp(self.library.games))
+        self.level_btn.setIcon(QIcon(level_ring(level, 30)))
+        self.level_btn.setText(f"  LEVEL {level}")
+        self.level_btn.setToolTip(f"GameKeeper level {level}  \u00b7  {need - into} XP to level {level + 1}")
+
+    def craft_badge(self, game_id: str):
+        g = self.library.get(game_id)
+        if not g:
+            return
+        prog = badges.BadgeProgress(g)
+        if not prog.can_craft:
+            return
+        g.badge_level = prog.level + 1
+        g.badge_crafted = (g.badge_crafted + [0] * badges.MAX_LEVEL)[:prog.level] + [int(time.time())]
+        self.library.save()
+        before = badges.profile_level(badges.profile_xp(self.library.games) - badges.XP_PER_LEVEL)[0]
+        after = badges.profile_level(badges.profile_xp(self.library.games))[0]
+        self.toasts.show(level_name(g, g.badge_level), f"Level {g.badge_level} badge  \u00b7  {g.name}  \u00b7  +100 XP",
+                         badge_image_path(g, g.badge_level), label="BADGE CRAFTED")
+        if after > before:
+            self.toasts.show(f"You reached level {after}!", "GameKeeper profile level", None, label="LEVEL UP")
+        self.refresh_level()
+        self._refresh_game(g)
 
     def open_game(self, game_id: str):
         g = self.library.get(game_id)
@@ -450,6 +510,7 @@ class MainWindow(QMainWindow):
         self.page.show_game(g)
         self._update_running_ui()
         self._switch_page(1)
+        self._set_nav("")
         for i in range(self.game_list.count()):
             it = self.game_list.item(i)
             it.setSelected(it.data(Qt.UserRole) == game_id)
@@ -461,7 +522,9 @@ class MainWindow(QMainWindow):
         """Re-render whatever is showing this game."""
         self.library.save()
         self.refresh_sidebar()
-        if self.stack.currentIndex() == 1 and self.page.game and self.page.game.id == g.id:
+        if self.stack.currentIndex() == 2:
+            self.badges_page.refresh(self.library.games)
+        elif self.stack.currentIndex() == 1 and self.page.game and self.page.game.id == g.id:
             self.page.show_game(g)
         else:
             self.grid.viewport().update()
@@ -609,6 +672,9 @@ class MainWindow(QMainWindow):
         if not g.appid or g.id in self._art_checked:
             return
         self._art_checked.add(g.id)
+        need_badge = not badges.badge_file(g).exists()
+        if need_badge:
+            run_async(lambda: badges.fetch_badge(g), lambda _: self._artwork_changed(g))
         if all(g.art_path(k).exists() or k in g.custom_art for k in ("cover", "hero", "logo", "icon")):
             return
         run_async(lambda: steam.download_artwork(g), lambda got: got and self._artwork_changed(g))
@@ -915,6 +981,7 @@ class MainWindow(QMainWindow):
 
         def job(progress):
             steam.download_artwork(g, force=True)
+            badges.fetch_badge(g)
             try:
                 achset = steam.fetch_achievements(g, settings, progress)
                 return achset.total, achset.unlocked_count, None

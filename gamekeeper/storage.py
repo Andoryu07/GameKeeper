@@ -225,6 +225,8 @@ class Game:
     keep_save_copies: bool = False  # snapshot the save each time it changes (for working out rules)
     notes: str = ""
     custom_art: list[str] = field(default_factory=list)   # artwork you picked yourself, never overwritten
+    badge_level: int = 0            # 0-5, crafted with achievement points
+    badge_crafted: list[int] = field(default_factory=list)   # when each level was crafted
     rating: int = 0                 # 1-10, 0 = not rated
     review: str = ""
     review_updated: int = 0

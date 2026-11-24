@@ -16,11 +16,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .. import tracking
+from .. import badges, tracking
 from ..runner import format_playtime
 from ..storage import Achievement, AchievementSet, Game
 from . import style
 from .flow import FlowLayout
+from . import badge_art
 from .rating import StarRating
 
 ROLE_ACH = Qt.UserRole + 1
@@ -53,6 +54,13 @@ def rarity_color(pct: float | None) -> str:
     if pct < 35:
         return style.ACCENT
     return style.MUTED
+
+
+def _hint_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet(f"color: {style.MUTED}; font-size: 12px;")
+    return lbl
 
 
 def _card(title: str = "") -> tuple[QWidget, QVBoxLayout]:
@@ -234,8 +242,12 @@ class AchievementDelegate(QStyledItemDelegate):
                 lines.append(({"steam": "imported from Steam", "manual": "unlocked by hand"}[ach.source], style.MUTED))
         elif ach.api_name in page.manual and page.tracked:
             lines.append(("unlock by hand", style.MUTED))
+        pts = "" if ach.excluded else f"{badges.achievement_points(ach.global_percent)} pts"
         if ach.global_percent is not None:
-            lines.append((f"{ach.global_percent:.1f}% of players", rarity_color(ach.global_percent)))
+            lines.append((f"{ach.global_percent:.1f}% of players" + (f"  \u00b7  {pts}" if pts else ""),
+                          rarity_color(ach.global_percent)))
+        elif pts:
+            lines.append((pts, style.MUTED))
         lh = 17
         y = rr.y() + (rr.height() - lh * len(lines)) // 2
         for text, color in lines:
@@ -325,6 +337,7 @@ class GamePage(QWidget):
     restore_deleted = Signal(str)
     review_saved = Signal(str, int, str)           # game id, rating, review text
     notes_saved = Signal(str, str)
+    craft_badge = Signal(str)
     set_artwork = Signal(str, str)                 # game id, "cover" | "hero" | "logo" | "icon"
     reset_artwork = Signal(str)
 
@@ -405,7 +418,7 @@ class GamePage(QWidget):
         tl.setContentsMargins(24, 6, 24, 0)
         tl.setSpacing(0)
         self.tab_group = QButtonGroup(self)
-        for i, name in enumerate(("ACHIEVEMENTS", "REVIEW", "DETAILS")):
+        for i, name in enumerate(("ACHIEVEMENTS", "BADGE", "REVIEW", "DETAILS")):
             b = QPushButton(name)
             b.setObjectName("Tab")
             b.setCheckable(True)
@@ -419,6 +432,7 @@ class GamePage(QWidget):
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_achievements())
+        self.pages.addWidget(self._build_badge())
         self.pages.addWidget(self._build_review())
         self.pages.addWidget(self._build_details())
         outer.addWidget(self.pages, 1)
@@ -536,6 +550,131 @@ class GamePage(QWidget):
         v.addWidget(card2, 1)
         return scroll
 
+    def _build_badge(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        scroll.setWidget(body)
+        v = QVBoxLayout(body)
+        v.setContentsMargins(24, 16, 24, 24)
+        v.setSpacing(14)
+
+        card, cl = _card("YOUR BADGE")
+        top = QHBoxLayout()
+        top.setSpacing(20)
+        self.badge_big = QLabel()
+        self.badge_big.setFixedSize(112, 112)
+        self.badge_big.setAlignment(Qt.AlignCenter)
+        top.addWidget(self.badge_big)
+        info = QVBoxLayout()
+        info.setSpacing(6)
+        self.badge_title = QLabel()
+        self.badge_title.setStyleSheet(f"color: {style.TEXT_BRIGHT}; font-size: 18px; font-weight: 700;")
+        self.badge_sub = QLabel()
+        self.badge_sub.setStyleSheet(f"color: {style.MUTED};")
+        self.badge_points = QLabel()
+        self.badge_points.setTextFormat(Qt.RichText)
+        self.badge_bar = QProgressBar()
+        self.badge_bar.setTextVisible(False)
+        self.badge_bar.setFixedHeight(6)
+        self.craft_btn = QPushButton()
+        self.craft_btn.setObjectName("Play")
+        self.craft_btn.setCursor(Qt.PointingHandCursor)
+        self.craft_btn.clicked.connect(lambda: self.game and self.craft_badge.emit(self.game.id))
+        info.addStretch()
+        info.addWidget(self.badge_title)
+        info.addWidget(self.badge_sub)
+        info.addSpacing(4)
+        info.addWidget(self.badge_points)
+        info.addWidget(self.badge_bar)
+        info.addSpacing(6)
+        info.addWidget(self.craft_btn, 0, Qt.AlignLeft)
+        info.addStretch()
+        top.addLayout(info, 1)
+        cl.addLayout(top)
+        v.addWidget(card)
+
+        card2, cl2 = _card("BADGE LEVELS")
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self.badge_slots = []
+        for lvl in range(1, badges.MAX_LEVEL + 1):
+            slot = QWidget()
+            slot.setObjectName("BadgeSlot")
+            sl = QVBoxLayout(slot)
+            sl.setContentsMargins(8, 10, 8, 10)
+            sl.setSpacing(4)
+            img = QLabel()
+            img.setFixedSize(80, 80)
+            img.setAlignment(Qt.AlignCenter)
+            name = QLabel()
+            name.setAlignment(Qt.AlignCenter)
+            name.setWordWrap(True)
+            meta = QLabel()
+            meta.setAlignment(Qt.AlignCenter)
+            meta.setStyleSheet(f"color: {style.MUTED}; font-size: 11px;")
+            sl.addWidget(img, 0, Qt.AlignHCenter)
+            sl.addWidget(name)
+            sl.addWidget(meta)
+            row.addWidget(slot, 1)
+            self.badge_slots.append((slot, img, name, meta))
+        cl2.addLayout(row)
+        cl2.addWidget(_hint_label(
+            "Points come from this game's achievements: rarer ones are worth more (10 to 50). "
+            "Each level costs a fifth of the game's points, so every achievement together is "
+            "exactly enough for level 5. Each level you craft gives 100 profile XP."))
+        v.addWidget(card2)
+        v.addStretch()
+        return scroll
+
+    def refresh_badge(self):
+        g = self.game
+        if not g:
+            return
+        prog = badges.BadgeProgress(g)
+        lvl = prog.level
+        if lvl:
+            self.badge_big.setPixmap(badge_art.badge_pixmap(g, lvl, 112))
+            self.badge_title.setText(badge_art.level_name(g, lvl))
+            self.badge_sub.setText(f"Level {lvl} badge  \u00b7  {lvl * badges.XP_PER_LEVEL} XP")
+        else:
+            self.badge_big.setPixmap(badge_art.badge_pixmap(g, 1, 112, locked=True))
+            self.badge_title.setText("No badge yet")
+            self.badge_sub.setText("Earn achievement points to craft your first level.")
+        if not prog.total:
+            self.badge_points.setText(f"<span style='color:{style.MUTED}'>This game has no achievement list yet, "
+                                      "so it has no points to earn.</span>")
+            self.badge_bar.hide()
+            self.craft_btn.hide()
+        else:
+            self.badge_points.setText(
+                f"<b style='color:{style.GOLD}'>{prog.available}</b> points available"
+                f"<span style='color:{style.MUTED}'>  \u00b7  earned {prog.earned} of {prog.total}</span>")
+            self.badge_bar.show()
+            self.craft_btn.show()
+            if lvl >= badges.MAX_LEVEL:
+                self.badge_bar.setMaximum(1)
+                self.badge_bar.setValue(1)
+                self.craft_btn.setText("MAX LEVEL")
+                self.craft_btn.setEnabled(False)
+            else:
+                self.badge_bar.setMaximum(max(prog.next_cost, 1))
+                self.badge_bar.setValue(max(0, min(prog.available, prog.next_cost)))
+                self.craft_btn.setText(f"CRAFT LEVEL {lvl + 1}  \u00b7  {prog.next_cost} PTS")
+                self.craft_btn.setEnabled(prog.can_craft)
+                self.craft_btn.setToolTip("" if prog.can_craft else
+                                          f"You need {prog.next_cost - prog.available} more points.")
+        for i, (slot, img, name, meta) in enumerate(self.badge_slots, start=1):
+            crafted = i <= lvl
+            img.setPixmap(badge_art.badge_pixmap(g, i, 80, locked=not crafted))
+            name.setText(badge_art.level_name(g, i))
+            name.setStyleSheet(f"color: {style.TEXT_BRIGHT if crafted else style.MUTED}; font-weight: 600;")
+            when = g.badge_crafted[i - 1] if crafted and i - 1 < len(g.badge_crafted) else 0
+            meta.setText(f"Level {i}  \u00b7  " + (f"crafted {_date(when, with_time=False)}" if when else
+                                                    ("crafted" if crafted else f"{prog.cost_to_reach(i) - prog.cost_to_reach(i - 1)} pts")))
+            border = style.GOLD if crafted else (style.ACCENT if i == lvl + 1 and prog.can_craft else style.BORDER)
+            slot.setStyleSheet(f"#BadgeSlot {{ background: {style.BG_DEEP}; border: 1px solid {border}; border-radius: 3px; }}")
+
     def _build_details(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -618,6 +757,7 @@ class GamePage(QWidget):
         self.tracked = bool(tracking.describe(game))
         self.refresh_stats()
         self.refresh_details()
+        self.refresh_badge()
         self.achset = AchievementSet(game.id)
         self.refresh_achievements()
 

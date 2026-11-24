@@ -110,6 +110,32 @@ To use your own images (handy for retro and non-Steam games), use
 **⚙ → Artwork → Set custom cover / background / logo / icon**. Custom artwork
 is never overwritten by Steam data; **Use Steam artwork again** undoes it.
 
+## Badges and your GameKeeper level
+
+Every game has a 5-level badge. Games with Steam trading cards use their real
+Steam badge names and images (looked up on SteamCardExchange); other games get
+a GameKeeper badge (bronze to diamond).
+
+Badge levels are crafted with **achievement points** from that game's own
+achievements, on the game's **BADGE** tab:
+
+| Achievement rarity | Points |
+|---|---|
+| under 5% of players | 50 |
+| under 10% | 40 |
+| under 20% | 30 |
+| under 50% | 20 |
+| 50% or more | 10 |
+
+Each level costs a fifth of the game's total points, so unlocking every
+achievement is exactly enough for level 5; rare achievements get you there
+faster. Excluded and deleted achievements don't count.
+
+Each crafted level gives 100 XP toward your **GameKeeper level** (shown in the
+top bar), like Steam: 100 XP per level up to level 10, 200 per level up to 20,
+and so on. The **BADGES** page shows your level and every game's badge, with
+games that have a level ready to craft first.
+
 ## Ratings and reviews
 
 On a game's page, open the **REVIEW** tab to rate it from 1 to 10 stars and
@@ -165,6 +191,17 @@ All styling lives in `gamekeeper/ui/theme.qss`, written in Qt Style Sheets
 `@gold`...) are used everywhere, including the parts drawn in code, so
 changing one there recolours the whole app. Restart GameKeeper to see changes.
 
+## Tray and popups
+
+Closing the window keeps GameKeeper running in the system tray, still tracking
+any game you're playing. Click the tray icon to bring the window back, or
+right-click it to launch a recent game or quit. Turn this off under
+**Settings → Window**. Starting GameKeeper again while it's in the tray just
+brings the window back.
+
+Achievement popups rise from the bottom-right corner of the screen, up to three
+at a time stacked upwards; any more wait their turn. Click a popup to dismiss it.
+
 ## Keyboard shortcuts
 
 | Keys | Action |
@@ -188,6 +225,7 @@ gamekeeper/
   winlaunch.py          starting games, including as administrator
   shortcut.py           creating desktop / Start menu shortcuts
   backup.py             daily zip backups of your records
+  badges.py             achievement points, badge levels, profile XP
   ui/                   the Qt interface
   ui/theme.qss          all colours and styling (Qt's CSS)
 ```
