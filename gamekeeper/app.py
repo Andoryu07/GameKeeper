@@ -20,11 +20,17 @@ def run() -> int:
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
     app.setWindowIcon(app_icon())
-    if sys.platform == "win32":
-        try:   # refresh the shortcut icon file so existing shortcuts get the current design
-            ico_file()
-        except OSError:
-            pass
     win = MainWindow()
     win.show()
+    if sys.platform == "win32":
+        # write the current icon and move existing shortcuts onto it, in the background
+        import threading
+        from . import shortcut
+
+        def refresh_shortcuts():
+            try:
+                shortcut.update_existing(ico_file())
+            except OSError:
+                pass
+        threading.Thread(target=refresh_shortcuts, daemon=True).start()
     return app.exec()

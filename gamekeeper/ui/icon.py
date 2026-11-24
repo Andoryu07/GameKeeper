@@ -15,7 +15,10 @@ from PySide6.QtGui import (
 
 from ..storage import DATA_DIR
 
-ICO_FILE = DATA_DIR / "gamekeeper.ico"
+# Bump the version whenever the design changes: Windows caches shortcut icons
+# by file path, so a new name is what makes it show the new design.
+ICON_VERSION = 2
+ICO_FILE = DATA_DIR / f"gamekeeper-v{ICON_VERSION}.ico"
 ICO_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 

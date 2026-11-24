@@ -53,3 +53,36 @@ Write-Output $path
     if out.returncode != 0:
         raise ShortcutError(out.stderr.strip() or "PowerShell couldn't create the shortcut.")
     return Path(out.stdout.strip().splitlines()[-1])
+
+
+def update_existing(icon: Path) -> int:
+    """Point any existing GameKeeper shortcuts at the current icon file.
+
+    Returns how many were updated. Also asks Windows to refresh its icon
+    cache so the new design shows straight away.
+    """
+    if not supported():
+        return 0
+    script = f"""
+$n = 0
+foreach ($f in 'Desktop', 'Programs') {{
+  $path = Join-Path ([Environment]::GetFolderPath($f)) 'GameKeeper.lnk'
+  if (Test-Path $path) {{
+    $s = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
+    if ($s.IconLocation -ne {_ps_quote(f"{icon},0")}) {{
+      $s.IconLocation = {_ps_quote(f"{icon},0")}
+      $s.Save()
+      $n++
+    }}
+  }}
+}}
+if ($n -gt 0) {{ Start-Process -WindowStyle Hidden ie4uinit.exe -ArgumentList '-show' -ErrorAction SilentlyContinue }}
+Write-Output $n
+"""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+        return int((out.stdout.strip().splitlines() or ["0"])[-1])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return 0
