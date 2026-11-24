@@ -6,7 +6,7 @@ import struct
 import wave
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer, QUrl
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -46,7 +46,10 @@ def _make_chime(path: Path) -> None:
 
 
 class _Toast(QWidget):
-    def __init__(self, title: str, subtitle: str, icon: QPixmap | None, seconds: int):
+    done = Signal(object)
+
+    def __init__(self, title: str, subtitle: str, icon: QPixmap | None, seconds: int,
+                 label: str = "ACHIEVEMENT UNLOCKED"):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
                          | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -77,7 +80,7 @@ class _Toast(QWidget):
         lay.addWidget(ic)
         text = QVBoxLayout()
         text.setSpacing(2)
-        head = QLabel("ACHIEVEMENT UNLOCKED")
+        head = QLabel(label)
         head.setStyleSheet(f"color: {style.GOLD}; font-size: 10px; font-weight: 700; letter-spacing: 1px;")
         name = QLabel(title)
         name.setStyleSheet(f"color: {style.TEXT_BRIGHT}; font-size: 14px; font-weight: 600;")
@@ -94,32 +97,47 @@ class _Toast(QWidget):
         lay.addLayout(text, 1)
 
         self._anim = None
-        QTimer.singleShot(seconds * 1000, self.fade_out)
+        self._seconds = seconds
+        self._closing = False
 
-    def slide_in(self, target: QRect):
-        start = QRect(target.x(), target.y() + 40, target.width(), target.height())
+    def slide_in(self, target: QRect, screen: QRect):
+        """Rise from below the bottom edge of the screen into place."""
+        start = QRect(target.x(), screen.bottom() + 8, target.width(), target.height())
         self.setGeometry(start)
-        self.setWindowOpacity(0.0)
         self.show()
+        self._animate(target, 380)
+        QTimer.singleShot(self._seconds * 1000, self.fade_out)
+
+    def move_to(self, target: QRect):
+        """Slide to a new slot (when a popup below it goes away)."""
+        if not self._closing:
+            self._animate(target, 240)
+
+    def _animate(self, target: QRect, ms: int):
         self._anim = QPropertyAnimation(self, b"geometry", self)
-        self._anim.setDuration(260)
-        self._anim.setStartValue(start)
+        self._anim.setDuration(ms)
+        self._anim.setStartValue(self.geometry())
         self._anim.setEndValue(target)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self._anim.start()
-        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
-        self._fade.setDuration(220)
-        self._fade.setStartValue(0.0)
-        self._fade.setEndValue(1.0)
-        self._fade.start()
 
     def fade_out(self):
+        if self._closing:
+            return
+        self._closing = True
         self._fade = QPropertyAnimation(self, b"windowOpacity", self)
-        self._fade.setDuration(400)
+        self._fade.setDuration(350)
         self._fade.setStartValue(self.windowOpacity())
         self._fade.setEndValue(0.0)
-        self._fade.finished.connect(self.close)
+        self._fade.finished.connect(self._finish)
         self._fade.start()
+
+    def _finish(self):
+        self.done.emit(self)
+        self.close()
+
+    def mousePressEvent(self, e):   # click to dismiss
+        self.fade_out()
 
 
 def _rounded(pm: QPixmap, size: int) -> QPixmap:
@@ -154,10 +172,18 @@ def _trophy(size: int) -> QPixmap:
 
 
 class ToastManager:
-    """Stacks popups in the bottom-right corner of the main screen."""
+    """Steam-style popups in the bottom-right corner.
+
+    Each popup rises from the bottom edge of the screen. At most MAX_VISIBLE
+    are shown at once, each new one stacked above the previous; the rest
+    wait their turn. When one goes away, the ones above slide down.
+    """
+
+    MAX_VISIBLE = 3
 
     def __init__(self):
-        self.active: list[_Toast] = []
+        self.active: list[_Toast] = []           # index 0 = lowest slot
+        self.pending: list[tuple] = []
         self.sound = None
         self.enabled_sound = True
         self.seconds = 6
@@ -178,14 +204,34 @@ class ToastManager:
         if self.sound:
             self.sound.play()
 
-    def show(self, title: str, subtitle: str = "", icon_path: Path | None = None):
-        icon = QPixmap(str(icon_path)) if icon_path else None
-        t = _Toast(title, subtitle, icon, self.seconds)
-        self.active = [x for x in self.active if x.isVisible()]
-        screen = QGuiApplication.primaryScreen().availableGeometry()
-        y = screen.bottom() - MARGIN - HEIGHT - len(self.active) * (HEIGHT + 6)
-        target = QRect(screen.right() - MARGIN - WIDTH, y, WIDTH, HEIGHT)
-        t.destroyed.connect(lambda *_: self.active.remove(t) if t in self.active else None)
-        self.active.append(t)
-        t.slide_in(target)
-        self._play()
+    @staticmethod
+    def _screens() -> tuple[QRect, QRect]:
+        scr = QGuiApplication.primaryScreen()
+        return scr.availableGeometry(), scr.geometry()
+
+    def _slot(self, i: int) -> QRect:
+        avail, _ = self._screens()
+        y = avail.bottom() - MARGIN - HEIGHT - i * (HEIGHT + 6)
+        return QRect(avail.right() - MARGIN - WIDTH, y, WIDTH, HEIGHT)
+
+    def show(self, title: str, subtitle: str = "", icon_path: Path | None = None,
+             label: str = "ACHIEVEMENT UNLOCKED"):
+        self.pending.append((title, subtitle, icon_path, label))
+        self._pump()
+
+    def _pump(self):
+        while len(self.active) < self.MAX_VISIBLE and self.pending:
+            title, subtitle, icon_path, label = self.pending.pop(0)
+            icon = QPixmap(str(icon_path)) if icon_path else None
+            t = _Toast(title, subtitle, icon, self.seconds, label)
+            t.done.connect(self._on_done)
+            self.active.append(t)
+            t.slide_in(self._slot(len(self.active) - 1), self._screens()[1])
+            self._play()
+
+    def _on_done(self, toast: _Toast):
+        if toast in self.active:
+            self.active.remove(toast)
+        for i, t in enumerate(self.active):
+            t.move_to(self._slot(i))
+        QTimer.singleShot(250, self._pump)
