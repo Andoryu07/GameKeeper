@@ -9,3 +9,8 @@ dist/
 # Your library, covers, achievements and settings live here.
 # Keep it out of the repo (it can contain your Steam API key).
 data/
+
+# Per-game achievement rules are kept locally in data/triggers/.
+# Never commit rule files placed in the package by mistake.
+gamekeeper/triggers/*
+!gamekeeper/triggers/__init__.py

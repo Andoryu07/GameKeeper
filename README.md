@@ -68,16 +68,13 @@ achievements when the save shows you've earned them. It doesn't change any
 game files. Progress you made before adding the game is picked up too, quietly,
 without popups.
 
-Supported games:
+Each game's rules are a small Python file kept **locally** in
+`data/triggers/` (for example `data/triggers/stardew_valley.py`). They're not
+part of this repository, and `data/` is never uploaded. For games without
+rules, right-click an achievement to unlock it by hand.
 
-| Game | Automatic | By hand | Notes |
-|---|---|---|---|
-| Stardew Valley | 47 of 49 | Fector's Challenge, Protector Of The Valley | Unlocks appear when the day ends and the game saves. |
-| Tomb Raider (2013) | 19 of 35 single-player | Skills, weapon upgrades, some kill types, one-off moments | Choose the save file under Edit game. More counters can be added as they're identified. |
-
-Each game's rules live in `gamekeeper/triggers/` (one file per game; see
-`stardew_valley.py`). For games without rules, right-click an achievement to
-unlock it by hand.
+Rule files are code that GameKeeper runs, so only put files there that you
+trust. A broken rule file is skipped and doesn't stop GameKeeper.
 
 ### Helping set up a new game
 
@@ -219,7 +216,7 @@ gamekeeper/
   storage.py            data folder, library, games, achievements
   scanner.py            finding the game .exe in a folder
   steam.py              Steam search, artwork, achievement data, imports
-  triggers/             per-game rules that read save files for unlocks
+  triggers/             loads per-game save-file rules from data/triggers/
   tracking.py           combines unlock sources for a game
   runner.py             launching games, playtime, watching for unlocks
   winlaunch.py          starting games, including as administrator

@@ -5,18 +5,38 @@ to tell from them which achievements are earned. GameKeeper checks the saves
 while the game runs and unlocks achievements as the save changes. Nothing in
 the game folder is modified.
 
-Adding a game
--------------
-Create ``gamekeeper/triggers/<game>.py`` with a subclass of ``GameRules`` and
-a module-level ``RULES = MyGame()``. Implement ``watch_files`` and
-``evaluate``; see ``stardew_valley.py`` for a full example.
+Where rules live
+----------------
+Rule files are kept **locally**, in ``data/triggers/<game>.py`` next to your
+library, and never uploaded with the code (``data/`` is git-ignored). Each file
+defines a subclass of ``GameRules`` and a module-level ``RULES = MyGame()``::
+
+    from gamekeeper.triggers import GameRules
+
+    class MyGame(GameRules):
+        name = "My Game"
+        appids = {123456}
+        def watch_files(self): ...
+        def evaluate(self): ...
+
+    RULES = MyGame()
+
+Rule files are Python code that GameKeeper runs, so only put files there that
+you trust.
 """
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import pkgutil
+import sys
 import threading
+import traceback
 from pathlib import Path
+
+from ..storage import DATA_DIR
+
+TRIGGERS_DIR = DATA_DIR / "triggers"
 
 
 class GameRules:
@@ -75,12 +95,32 @@ class GameRules:
 _registry: list[GameRules] | None = None
 
 
+def _load_local(path: Path):
+    name = f"gamekeeper_local_triggers.{path.stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def all_rules() -> list[GameRules]:
+    """Rules from data/triggers/*.py (local), plus any bundled in this package."""
     global _registry
     if _registry is None:
         _registry = []
+        modules = []
         for mod in pkgutil.iter_modules(__path__):
-            m = importlib.import_module(f"{__name__}.{mod.name}")
+            modules.append(lambda n=mod.name: importlib.import_module(f"{__name__}.{n}"))
+        if TRIGGERS_DIR.is_dir():
+            for f in sorted(TRIGGERS_DIR.glob("*.py")):
+                modules.append(lambda f=f: _load_local(f))
+        for load in modules:
+            try:
+                m = load()
+            except Exception:  # noqa: BLE001 - one broken rule file shouldn't stop the app
+                traceback.print_exc()
+                continue
             rules = getattr(m, "RULES", None)
             if isinstance(rules, GameRules):
                 _registry.append(rules)

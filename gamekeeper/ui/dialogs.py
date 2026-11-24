@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QSpinBox, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .. import backup, scanner, shortcut, snapshots, steam
@@ -287,6 +287,16 @@ class EditGameDialog(QDialog):
         self.admin.setChecked(game.run_as_admin)
         self.admin.setToolTip("Windows will ask for permission each time the game starts.")
         form.addRow("", self.admin)
+        self.hours = QDoubleSpinBox()
+        self.hours.setRange(0, 100000)
+        self.hours.setDecimals(1)
+        self.hours.setSingleStep(0.5)
+        self.hours.setSuffix(" hours")
+        self.hours.setValue(round(game.playtime / 3600, 1))
+        self.hours.setToolTip("Time played through GameKeeper. Change it to correct the record, "
+                              "e.g. after losing data.")
+        self._hours_start = self.hours.value()
+        form.addRow("Play time", self.hours)
         form.addRow("Start in", self.workdir)
         self.save_file = QLineEdit(game.save_path)
         self.save_file.setPlaceholderText("Only needed for some games' automatic achievements")
@@ -342,6 +352,8 @@ class EditGameDialog(QDialog):
         g.install_dir = self.install.text().strip()
         g.args = self.args.text().strip()
         g.run_as_admin = self.admin.isChecked()
+        if self.hours.value() != self._hours_start:      # only touch it if it was changed
+            g.playtime = int(round(self.hours.value() * 3600))
         g.working_dir = self.workdir.text().strip()
         g.save_path = self.save_file.text().strip()
         g.keep_save_copies = self.keep_copies.isChecked()
