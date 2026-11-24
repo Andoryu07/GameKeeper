@@ -79,6 +79,15 @@ Each game's rules live in `gamekeeper/triggers/` (one file per game; see
 `stardew_valley.py`). For games without rules, right-click an achievement to
 unlock it by hand.
 
+### Any Steam game: Steam API emulator
+
+For games without save-file rules, GameKeeper can swap the game's
+`steam_api.dll` for one from the open-source gbe_fork emulator, which you
+build yourself from its public code on GitHub. The emulator records every
+achievement the game reports, with no per-game setup. **[EMULATOR.md](EMULATOR.md)**
+walks you through building it and turning it on (**⚙ → Automatic tracking**).
+The original DLLs are backed up and can be restored any time.
+
 ### Helping set up a new game
 
 Rules for a new game are worked out by comparing saves made before and after
@@ -225,6 +234,7 @@ gamekeeper/
   winlaunch.py          starting games, including as administrator
   shortcut.py           creating desktop / Start menu shortcuts
   backup.py             daily zip backups of your records
+  emulator.py           Steam API emulator: DLL swap/restore, reading its unlocks
   badges.py             achievement points, badge levels, profile XP
   ui/                   the Qt interface
   ui/theme.qss          all colours and styling (Qt's CSS)

@@ -79,6 +79,7 @@ class Settings:
     steam_api_key: str = ""
     steam_id: str = ""              # SteamID64 or custom profile name
     language: str = "english"
+    emulator_dir: str = ""          # folder with the Steam API emulator's DLLs (built from source)
     toast_sound: bool = True
     toast_seconds: int = 6
     close_to_tray: bool = True      # closing the window keeps GameKeeper running in the tray
@@ -221,6 +222,7 @@ class Game:
     achievements_total: int = 0     # cached for the grid
     achievements_unlocked: int = 0
     run_as_admin: bool = False
+    emulator_installed: bool = False   # the game's steam_api DLL is swapped for the emulator's
     save_path: str = ""             # the game's save file, for games whose rules need it
     keep_save_copies: bool = False  # snapshot the save each time it changes (for working out rules)
     notes: str = ""

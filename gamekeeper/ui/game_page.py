@@ -338,6 +338,8 @@ class GamePage(QWidget):
     review_saved = Signal(str, int, str)           # game id, rating, review text
     notes_saved = Signal(str, str)
     craft_badge = Signal(str)
+    setup_emulator = Signal(str)
+    restore_emulator = Signal(str)
     set_artwork = Signal(str, str)                 # game id, "cover" | "hero" | "logo" | "icon"
     reset_artwork = Signal(str)
 
@@ -984,6 +986,11 @@ class GamePage(QWidget):
         a2 = m.addAction("Import my unlocks and playtime from Steam", lambda: self.import_steam.emit(g.id))
         a1.setEnabled(bool(g.appid))
         a2.setEnabled(bool(g.appid))
+        em = m.addMenu("Automatic tracking (emulator)")
+        b1 = em.addAction("Set up for this game...", lambda: self.setup_emulator.emit(g.id))
+        b2 = em.addAction("Restore original Steam files", lambda: self.restore_emulator.emit(g.id))
+        b1.setEnabled(bool(g.appid) and not g.emulator_installed)
+        b2.setEnabled(g.emulator_installed)
         m.addSeparator()
         if self.achset and self.achset.excluded_count:
             excl = [a.api_name for a in self.achset.items if a.excluded]

@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
     QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -358,9 +358,15 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: Settings, parent=None, test_popup=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.resize(600, 860)
+        self.resize(640, 760)
         self.settings = settings
-        lay = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
+        lay = QVBoxLayout(body)
 
         box = QGroupBox("Steam account (optional)")
         f = QFormLayout(box)
@@ -394,6 +400,21 @@ class SettingsDialog(QDialog):
             test.clicked.connect(lambda: test_popup(self.sound.isChecked(), self.secs.value()))
             f2.addRow("", test)
         lay.addWidget(box2)
+
+        boxe = QGroupBox("Automatic tracking (Steam API emulator)")
+        fe = QFormLayout(boxe)
+        erow = QHBoxLayout()
+        self.emu = QLineEdit(settings.emulator_dir)
+        self.emu.setPlaceholderText("Folder with the emulator's steam_api64.dll / steam_api.dll")
+        epick = QPushButton("Browse...")
+        epick.clicked.connect(self._pick_emu)
+        erow.addWidget(self.emu, 1)
+        erow.addWidget(epick)
+        fe.addRow("Emulator folder", erow)
+        fe.addRow("", _hint("Build the DLLs yourself from the open-source gbe_fork project; EMULATOR.md in "
+                            "the GameKeeper folder walks you through it. Then use \u2699 \u2192 Automatic "
+                            "tracking on a game's page."))
+        lay.addWidget(boxe)
 
         boxb = QGroupBox("Backups")
         fb = QFormLayout(boxb)
@@ -447,7 +468,12 @@ class SettingsDialog(QDialog):
         buttons.button(QDialogButtonBox.Save).setObjectName("Primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        lay.addWidget(buttons)
+        outer.addWidget(buttons)
+
+    def _pick_emu(self):
+        d = QFileDialog.getExistingDirectory(self, "Emulator folder", self.emu.text())
+        if d:
+            self.emu.setText(d)
 
     def _current_backup_settings(self) -> Settings:
         s = Settings(**{**self.settings.__dict__})
@@ -485,6 +511,7 @@ class SettingsDialog(QDialog):
         s.toast_seconds = self.secs.value()
         s.backup_dir = self.backup_dir.text().strip()
         s.close_to_tray = self.tray.isChecked()
+        s.emulator_dir = self.emu.text().strip()
         s.save()
         super().accept()
 
