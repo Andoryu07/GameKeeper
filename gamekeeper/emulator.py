@@ -43,7 +43,28 @@ def find_steam_dlls(game_dir: Path) -> list[Path]:
 
 def is_installed(game: Game) -> bool:
     dlls = find_steam_dlls(game.game_dir)
-    return bool(dlls) and all(_backup(d).exists() for d in dlls)
+    return bool(dlls) and all(_backup(d).exists() or _added_marker(d).exists() for d in dlls)
+
+
+def _added_marker(dll: Path) -> Path:
+    return dll.with_name(dll.name + ".gamekeeper-added")
+
+
+def missing_dll(game: Game) -> Path | None:
+    """If the game's exe needs steam_api(64).dll but it's missing, where it should go.
+
+    Windows programs list the DLLs they load inside the .exe, so this reads
+    the exe for those names. Returns None if the exe doesn't ask for either.
+    """
+    exe = Path(game.exe)
+    try:
+        data = exe.read_bytes().lower()
+    except OSError:
+        return None
+    for name in ("steam_api64.dll", "steam_api.dll"):
+        if name.encode() in data:
+            return exe.parent / name
+    return None
 
 
 def _backup(dll: Path) -> Path:
@@ -59,11 +80,27 @@ def install(game: Game, emulator_dir: str) -> list[Path]:
         raise EmulatorError("Set the emulator folder in Settings first.")
     dlls = find_steam_dlls(game.game_dir)
     if not dlls:
-        raise EmulatorError("No steam_api.dll or steam_api64.dll found in the game folder.\n"
-                            "This game may not use Steam achievements.")
+        target = missing_dll(game)
+        if target is None:
+            raise EmulatorError("No steam_api.dll or steam_api64.dll found in the game folder, and the "
+                                "game's .exe doesn't ask for one, so the emulator can't be used for it.")
+        # The game needs the DLL but it isn't there: add the emulator's next to the exe.
+        dlls = [target]
 
     replaced = []
     for dll in dlls:
+        if not dll.exists():
+            machine = pe_machine(Path(game.exe)) or PE_32BIT
+            src = _find_emu_dll(emu, dll.name.lower(), machine)
+            if src is None:
+                bits = "64-bit" if machine == PE_64BIT else "32-bit"
+                raise EmulatorError(f"The emulator folder has no {bits} {dll.name}. Point Settings \u2192 "
+                                    "Emulator folder at the folder that holds both the x64 and x86 builds.")
+            shutil.copy2(src, dll)
+            _added_marker(dll).write_text("Added by GameKeeper; Restore removes it.\n")
+            write_steam_settings(game, dll.parent)
+            replaced.append(dll)
+            continue
         backup = _backup(dll)
         original = backup if backup.exists() else dll
         machine = pe_machine(original) or (PE_64BIT if dll.name.lower() == "steam_api64.dll" else PE_32BIT)
@@ -115,13 +152,18 @@ def _find_emu_dll(emu: Path, name: str, machine: int | None = None) -> Path | No
 
 
 def restore(game: Game) -> int:
-    """Put the original Steam DLLs back. Returns how many were restored."""
+    """Put the original Steam DLLs back (or remove ones GameKeeper added). Returns how many."""
     count = 0
     for dll in find_steam_dlls(game.game_dir):
         backup = _backup(dll)
+        added = _added_marker(dll)
         if backup.exists():
             shutil.copy2(backup, dll)
             backup.unlink()
+            count += 1
+        elif added.exists():
+            dll.unlink(missing_ok=True)
+            added.unlink()
             count += 1
     return count
 

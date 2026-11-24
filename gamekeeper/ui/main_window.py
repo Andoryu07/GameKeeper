@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QShortcut
@@ -676,18 +677,26 @@ class MainWindow(QMainWindow):
                                     "Pull the achievement list from Steam first (\u2699 \u2192 Pull / refresh Steam data).")
             return
         dlls = emulator.find_steam_dlls(g.game_dir)
-        if not dlls:
-            QMessageBox.warning(self, "Automatic tracking",
-                                "No steam_api.dll or steam_api64.dll was found in this game's folder, so the "
-                                "emulator can't be used for it. Check the game folder under Edit game.")
-            return
-        listing = "\n".join(f"  \u2022 {d.relative_to(g.game_dir)}" for d in dlls)
+        if dlls:
+            listing = "\n".join(f"  \u2022 {d.relative_to(g.game_dir)}" for d in dlls)
+            what = (f"GameKeeper will back up and replace:\n{listing}\n\n"
+                    "with the emulator's DLL, so the game reports achievements to GameKeeper. "
+                    "Undo it any time with 'Restore original Steam files'.\n\n")
+        else:
+            target = emulator.missing_dll(g)
+            if target is None:
+                QMessageBox.warning(self, "Automatic tracking",
+                                    "This game has no steam_api.dll or steam_api64.dll, and its .exe doesn't "
+                                    "ask for one, so the emulator can't be used for it.\n\n"
+                                    "If the DLL should be there, check the game folder and executable under Edit game.")
+                return
+            what = (f"{Path(g.exe).name} needs {target.name}, but it's missing from the game folder.\n\n"
+                    f"GameKeeper will add the emulator's {target.name} next to the game, so it reports "
+                    "achievements to GameKeeper. 'Restore original Steam files' removes it again.\n\n")
         folder = emulator.save_folder(g)
         if QMessageBox.question(
                 self, "Set up automatic tracking",
-                f"GameKeeper will back up and replace:\n{listing}\n\n"
-                "with the emulator's DLL, so the game reports achievements to GameKeeper. "
-                "Undo it any time with 'Restore original Steam files'.\n\n"
+                what +
                 "Note: games that save through Steam (Steam Cloud) will keep their saves in the "
                 f"emulator's folder from now on:\n{folder}\n"
                 "If your progress doesn't show up in the game, copy your existing saves there "

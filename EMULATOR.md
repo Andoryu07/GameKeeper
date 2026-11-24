@@ -60,7 +60,11 @@ source, because of what they do (stand in for Steam). If it does:
 2. On a game's page, pull its achievements from Steam if you haven't yet.
 3. **⚙ → Automatic tracking (emulator) → Set up for this game**.
 
-GameKeeper backs up the game's original DLLs (`*.gamekeeper-original`), copies
+If the game's `steam_api.dll` is missing but its `.exe` needs one, GameKeeper
+adds the emulator's DLL next to the exe instead (picking 32- or 64-bit from the
+exe), and **Restore** removes it again.
+
+Otherwise GameKeeper backs up the game's original DLLs (`*.gamekeeper-original`), copies
 in the emulator, and writes the emulator's `steam_settings` folder (app id and
 achievement list). **Restore original Steam files** in the same menu undoes it.
 
