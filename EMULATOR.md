@@ -14,11 +14,18 @@ than trusting a downloaded file.
 ## Build the DLLs (about 30-60 minutes, mostly waiting)
 
 1. Sign in to GitHub and open <https://github.com/Detanup01/gbe_fork>.
-   Click **Fork**, then **Create fork**.
+   Click **Fork**. On the fork page, **untick "Copy the `dev` branch only"**,
+   then click **Create fork**. The build needs the project's
+   `third-party/...` branches; with that box ticked (the default), every
+   build job fails.
 2. In your fork, open the **Actions** tab and click **I understand my
    workflows, go ahead and enable them**.
 3. In the list on the left, pick **Build emu (Windows)**, click **Run
    workflow**, keep the default branch and click the green **Run workflow**.
+   *All jobs failed?* Your fork is probably missing the `third-party/...`
+   branches (check the branch list). Delete the fork (its **Settings** →
+   bottom of the page → **Delete this repository**) and fork again with the
+   box unticked.
 4. Wait for the run to finish. The first run builds the dependencies too, so
    it takes a while. A few optional parts may fail; that's fine as long as
    the `api_regular` release builds succeed.
