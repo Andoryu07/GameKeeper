@@ -64,9 +64,14 @@ def install(game: Game, emulator_dir: str) -> list[Path]:
 
     replaced = []
     for dll in dlls:
-        src = _find_emu_dll(emu, dll.name.lower())
+        backup = _backup(dll)
+        original = backup if backup.exists() else dll
+        machine = pe_machine(original) or (PE_64BIT if dll.name.lower() == "steam_api64.dll" else PE_32BIT)
+        src = _find_emu_dll(emu, dll.name.lower(), machine)
         if src is None:
-            raise EmulatorError(f"The emulator folder has no {dll.name}.")
+            bits = "64-bit" if machine == PE_64BIT else "32-bit"
+            raise EmulatorError(f"The emulator folder has no {bits} {dll.name}. Point Settings \u2192 "
+                                "Emulator folder at the folder that holds both the x64 and x86 builds.")
         backup = _backup(dll)
         if not backup.exists():           # never overwrite the real original
             shutil.copy2(dll, backup)
@@ -76,13 +81,36 @@ def install(game: Game, emulator_dir: str) -> list[Path]:
     return replaced
 
 
-def _find_emu_dll(emu: Path, name: str) -> Path | None:
-    direct = emu / name
-    if direct.exists():
-        return direct
-    # release archives keep the DLLs in sub-folders (e.g. regular/x64/)
-    matches = [p for p in emu.rglob("*") if p.name.lower() == name]
-    matches.sort(key=lambda p: ("experimental" in str(p).lower(), "debug" in str(p).lower(), len(p.parts)))
+PE_32BIT, PE_64BIT = 0x14C, 0x8664
+
+
+def pe_machine(path: Path) -> int | None:
+    """CPU type a Windows DLL was built for (0x14C = 32-bit, 0x8664 = 64-bit)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        if head[:2] != b"MZ":
+            return None
+        pe = int.from_bytes(head[0x3C:0x40], "little")
+        if head[pe:pe + 4] != b"PE\0\0":
+            return None
+        return int.from_bytes(head[pe + 4:pe + 6], "little")
+    except (OSError, ValueError):
+        return None
+
+
+def _find_emu_dll(emu: Path, name: str, machine: int | None = None) -> Path | None:
+    """Find the emulator DLL to use in place of a game's ``name``.
+
+    Release downloads keep the DLLs in sub-folders (x64/ and x86/), so the
+    whole folder is searched. Prefers regular release builds, and only picks
+    a DLL built for the same CPU type as the game's own (32 vs 64-bit).
+    """
+    matches = [p for p in emu.rglob("*") if p.is_file() and p.name.lower() == name]
+    if machine:
+        matches = [p for p in matches if pe_machine(p) in (machine, None)]
+    matches.sort(key=lambda p: (pe_machine(p) is None, "experimental" in str(p).lower(),
+                                "debug" in str(p).lower(), len(p.parts)))
     return matches[0] if matches else None
 
 

@@ -35,7 +35,10 @@ than trusting a downloaded file.
 
    GitHub deletes these after one day, so download them soon after the run.
 6. Extract both into **one** folder, for example `C:\GameKeeper\emulator`.
-   GameKeeper finds `steam_api64.dll` and `steam_api.dll` in the subfolders.
+   You'll end up with an `x64` folder (64-bit, `steam_api64.dll`) and an
+   `x86` folder (32-bit, `steam_api.dll`; x86 is the same as 32-bit/Win32).
+   Point GameKeeper at the folder that contains both. It picks the right DLL
+   for each game by checking whether the game's own DLL is 32- or 64-bit.
 
 ## Antivirus
 
