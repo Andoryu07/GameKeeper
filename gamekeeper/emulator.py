@@ -51,20 +51,42 @@ def _added_marker(dll: Path) -> Path:
 
 
 def missing_dll(game: Game) -> Path | None:
-    """If the game's exe needs steam_api(64).dll but it's missing, where it should go.
+    """If the game needs steam_api(64).dll but it's missing, where it should go.
 
-    Windows programs list the DLLs they load inside the .exe, so this reads
-    the exe for those names. Returns None if the exe doesn't ask for either.
+    Windows programs list the DLLs they load inside the file, and games that
+    load it at runtime still contain its name (as plain or UTF-16 text). This
+    checks the game's exe and the other programs and DLLs in its folders.
+    Returns None if nothing in the game asks for either DLL.
     """
     exe = Path(game.exe)
-    try:
-        data = exe.read_bytes().lower()
-    except OSError:
-        return None
+    files = [exe] + [p for p in sorted(game.game_dir.rglob("*"))
+                     if p.suffix.lower() in (".exe", ".dll") and p != exe
+                     and p.name.lower() not in DLL_NAMES][:200]
     for name in ("steam_api64.dll", "steam_api.dll"):
-        if name.encode() in data:
-            return exe.parent / name
+        patterns = (name.encode(), name.encode("utf-16-le"))
+        for f in files:
+            try:
+                if f.stat().st_size > 400 * 1024 * 1024:
+                    continue
+                data = f.read_bytes().lower()
+            except OSError:
+                continue
+            if any(pat in data for pat in patterns):
+                return exe.parent / name
     return None
+
+
+def scan_report(game: Game) -> str:
+    """Plain-text summary of what's in the game folder, for troubleshooting."""
+    exe = Path(game.exe)
+    lines = [f"Executable: {exe}  ({'found' if exe.exists() else 'NOT FOUND'})",
+             f"Game folder: {game.game_dir}"]
+    m = pe_machine(exe)
+    lines.append(f"Executable type: {'64-bit' if m == PE_64BIT else '32-bit' if m == PE_32BIT else 'unknown'}")
+    mods = sorted(p for p in game.game_dir.rglob("*") if p.suffix.lower() in (".exe", ".dll"))[:60]
+    lines.append("Programs and DLLs in the game folder:")
+    lines += [f"  {p.relative_to(game.game_dir)}" for p in mods] or ["  (none)"]
+    return "\n".join(lines)
 
 
 def _backup(dll: Path) -> Path:

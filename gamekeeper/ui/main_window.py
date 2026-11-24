@@ -685,10 +685,13 @@ class MainWindow(QMainWindow):
         else:
             target = emulator.missing_dll(g)
             if target is None:
-                QMessageBox.warning(self, "Automatic tracking",
-                                    "This game has no steam_api.dll or steam_api64.dll, and its .exe doesn't "
-                                    "ask for one, so the emulator can't be used for it.\n\n"
-                                    "If the DLL should be there, check the game folder and executable under Edit game.")
+                box = QMessageBox(QMessageBox.Warning, "Automatic tracking",
+                                  "Nothing in this game's folder uses steam_api.dll or steam_api64.dll, so the "
+                                  "emulator can't be used for it.\n\n"
+                                  "Check that Edit game points at the right executable and folder. "
+                                  "Details (use 'Show Details' to copy them):", QMessageBox.Ok, self)
+                box.setDetailedText(emulator.scan_report(g))
+                box.exec()
                 return
             what = (f"{Path(g.exe).name} needs {target.name}, but it's missing from the game folder.\n\n"
                     f"GameKeeper will add the emulator's {target.name} next to the game, so it reports "
