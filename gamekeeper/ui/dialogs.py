@@ -401,21 +401,6 @@ class SettingsDialog(QDialog):
             f2.addRow("", test)
         lay.addWidget(box2)
 
-        boxe = QGroupBox("Automatic tracking (Steam API emulator)")
-        fe = QFormLayout(boxe)
-        erow = QHBoxLayout()
-        self.emu = QLineEdit(settings.emulator_dir)
-        self.emu.setPlaceholderText("Folder with the emulator's steam_api64.dll / steam_api.dll")
-        epick = QPushButton("Browse...")
-        epick.clicked.connect(self._pick_emu)
-        erow.addWidget(self.emu, 1)
-        erow.addWidget(epick)
-        fe.addRow("Emulator folder", erow)
-        fe.addRow("", _hint("Build the DLLs yourself from the open-source gbe_fork project; EMULATOR.md in "
-                            "the GameKeeper folder walks you through it. Then use \u2699 \u2192 Automatic "
-                            "tracking on a game's page."))
-        lay.addWidget(boxe)
-
         boxb = QGroupBox("Backups")
         fb = QFormLayout(boxb)
         brow = QHBoxLayout()
@@ -470,11 +455,6 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
-    def _pick_emu(self):
-        d = QFileDialog.getExistingDirectory(self, "Emulator folder", self.emu.text())
-        if d:
-            self.emu.setText(d)
-
     def _current_backup_settings(self) -> Settings:
         s = Settings(**{**self.settings.__dict__})
         s.backup_dir = self.backup_dir.text().strip()
@@ -511,7 +491,6 @@ class SettingsDialog(QDialog):
         s.toast_seconds = self.secs.value()
         s.backup_dir = self.backup_dir.text().strip()
         s.close_to_tray = self.tray.isChecked()
-        s.emulator_dir = self.emu.text().strip()
         s.save()
         super().accept()
 

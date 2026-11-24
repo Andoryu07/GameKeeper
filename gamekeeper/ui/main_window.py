@@ -5,7 +5,6 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QShortcut
@@ -16,7 +15,7 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate, QVBoxLayout, QWidget,
 )
 
-from .. import backup, badges, emulator, shortcut, steam, tracking
+from .. import backup, badges, shortcut, steam, tracking
 from ..runner import GameSession
 from ..storage import AchievementSet, Game, Library, Settings
 from . import style
@@ -335,8 +334,6 @@ class MainWindow(QMainWindow):
         p.review_saved.connect(self.save_review)
         p.notes_saved.connect(self.save_notes)
         p.craft_badge.connect(self.craft_badge)
-        p.setup_emulator.connect(self.setup_emulator)
-        p.restore_emulator.connect(self.restore_emulator)
         p.set_artwork.connect(self.set_artwork)
         p.reset_artwork.connect(self.reset_artwork)
 
@@ -656,77 +653,6 @@ class MainWindow(QMainWindow):
         self.refresh_sidebar()
         self.show_library()
         self.statusBar().showMessage(f"{g.name} moved to the archive.", 8000)
-
-    # ------------------------------------------------------------------ #
-    # Steam API emulator
-    # ------------------------------------------------------------------ #
-    def setup_emulator(self, game_id: str):
-        g = self.library.get(game_id)
-        if not g:
-            return
-        if not self.settings.emulator_dir:
-            QMessageBox.information(
-                self, "Automatic tracking",
-                "First set the folder with the emulator's DLLs in Settings \u2192 Automatic tracking.\n\n"
-                "EMULATOR.md (in the GameKeeper folder) explains how to build them from source.")
-            self.open_settings()
-            if not self.settings.emulator_dir:
-                return
-        if not AchievementSet(g.id).items:
-            QMessageBox.information(self, "Automatic tracking",
-                                    "Pull the achievement list from Steam first (\u2699 \u2192 Pull / refresh Steam data).")
-            return
-        dlls = emulator.find_steam_dlls(g.game_dir)
-        if dlls:
-            listing = "\n".join(f"  \u2022 {d.relative_to(g.game_dir)}" for d in dlls)
-            what = (f"GameKeeper will back up and replace:\n{listing}\n\n"
-                    "with the emulator's DLL, so the game reports achievements to GameKeeper. "
-                    "Undo it any time with 'Restore original Steam files'.\n\n")
-        else:
-            target = emulator.missing_dll(g)
-            if target is None:
-                box = QMessageBox(QMessageBox.Warning, "Automatic tracking",
-                                  "Nothing in this game's folder uses steam_api.dll or steam_api64.dll, so the "
-                                  "emulator can't be used for it.\n\n"
-                                  "Check that Edit game points at the right executable and folder. "
-                                  "Details (use 'Show Details' to copy them):", QMessageBox.Ok, self)
-                box.setDetailedText(emulator.scan_report(g))
-                box.exec()
-                return
-            what = (f"{Path(g.exe).name} needs {target.name}, but it's missing from the game folder.\n\n"
-                    f"GameKeeper will add the emulator's {target.name} next to the game, so it reports "
-                    "achievements to GameKeeper. 'Restore original Steam files' removes it again.\n\n")
-        folder = emulator.save_folder(g)
-        if QMessageBox.question(
-                self, "Set up automatic tracking",
-                what +
-                "Note: games that save through Steam (Steam Cloud) will keep their saves in the "
-                f"emulator's folder from now on:\n{folder}\n"
-                "If your progress doesn't show up in the game, copy your existing saves there "
-                "(into a 'remote' subfolder).\n\nContinue?") != QMessageBox.Yes:
-            return
-        try:
-            emulator.install(g, self.settings.emulator_dir)
-            emulator.push_unlocks(g)
-        except (emulator.EmulatorError, OSError) as e:
-            self._error("Setup failed", str(e))
-            return
-        g.emulator_installed = True
-        self._refresh_game(g)
-        self.statusBar().showMessage(f"Automatic tracking is on for {g.name}.", 8000)
-
-    def restore_emulator(self, game_id: str):
-        g = self.library.get(game_id)
-        if not g:
-            return
-        try:
-            n = emulator.restore(g)
-        except OSError as e:
-            self._error("Restore failed", str(e))
-            return
-        g.emulator_installed = False
-        self._refresh_game(g)
-        self.statusBar().showMessage(f"Restored {n} original file(s) for {g.name}.", 8000)
 
     def save_review(self, game_id: str, rating: int, text: str):
         g = self.library.get(game_id)
@@ -1066,9 +992,6 @@ class MainWindow(QMainWindow):
             total, unlocked, err = result
             if total:
                 g.achievements_total, g.achievements_unlocked = total, unlocked
-            if g.emulator_installed:   # keep the emulator's list in sync
-                for dll in emulator.find_steam_dlls(g.game_dir):
-                    emulator.write_steam_settings(g, dll.parent)
             self._sync_unlocks(g, refresh=False)
             self._refresh_game(g)
             msg = f"{g.name}: cover art updated" + (f", {total} achievements." if total else ".")

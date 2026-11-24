@@ -27,9 +27,16 @@ class _Job(QRunnable):
                 result = self.fn()
         except Exception as e:  # noqa: BLE001 - shown to the user
             traceback.print_exc()
-            self.signals.error.emit(str(e) or e.__class__.__name__)
+            self._emit(self.signals.error, str(e) or e.__class__.__name__)
         else:
-            self.signals.done.emit(result)
+            self._emit(self.signals.done, result)
+
+    @staticmethod
+    def _emit(signal, value):
+        try:
+            signal.emit(value)
+        except RuntimeError:   # the app quit while this job was still running
+            pass
 
 
 def run_async(fn, on_done=None, on_error=None, on_progress=None):
